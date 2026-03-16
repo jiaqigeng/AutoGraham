@@ -1,304 +1,318 @@
 import streamlit as st
-import yfinance as yf
-import plotly.graph_objects as go
+from agent.llm_service import run_competitor_analysis
+from components.ai_report import render_ai_report
+from components.dcf_fcfe import render_dcf_calculator
+from components.header import render_metrics_header
+from components.waterfall import render_waterfall_chart
+from data.yf_api import fetch_stock_data
 
 
-st.set_page_config(page_title="AutoGraham", page_icon="🤖", layout="wide")
+st.set_page_config(layout="wide")
 
-
-@st.cache_data(ttl=3600)
-def fetch_company_info(ticker: str) -> dict:
-	stock = yf.Ticker(ticker)
-	info = stock.info
-
-	company_name = info.get("longName")
-	sector = info.get("sector")
-	current_price = info.get("currentPrice")
-
-	if not company_name or current_price is None:
-		raise ValueError("Invalid ticker or missing company data.")
-
-	return {
-		"longName": company_name,
-		"sector": sector or "N/A",
-		"currentPrice": current_price,
+st.markdown(
+	"""
+	<style>
+	[data-testid="stMarkdownContainer"] h1,
+	[data-testid="stMarkdownContainer"] h2,
+	[data-testid="stMarkdownContainer"] h3 {
+		color: #0f172a;
+		letter-spacing: -0.02em;
 	}
 
-
-st.sidebar.title("AutoGraham 🤖")
-ticker = st.sidebar.text_input("Enter Stock Ticker", value="AAPL").strip().upper()
-
-
-st.title("AutoGraham 🤖")
-
-try:
-	company_data = fetch_company_info(ticker)
-	st.subheader(f"{company_data['longName']} ({ticker})")
-	st.write(f"**Sector:** {company_data['sector']}")
-	st.write(f"**Current Price:** ${company_data['currentPrice']}")
-except Exception:
-	st.error("Invalid ticker symbol or data unavailable. Please try another ticker.")
-
-
-@st.cache_data(ttl=3600)
-def fetch_income_statement_metrics(ticker: str, period_type: str):
-	stock = yf.Ticker(ticker)
-	statement = stock.quarterly_financials if period_type == "Quarterly" else stock.financials
-
-	if statement is None or statement.empty:
-		raise ValueError("Income statement data is unavailable.")
-
-	latest_period = statement.columns[0]
-	row = statement[latest_period].fillna(0)
-
-	total_revenue_raw = float(row.get("Total Revenue", 0) or 0)
-	if total_revenue_raw == 0:
-		total_revenue_raw = float(row.get("Revenue", 0) or 0)
-
-	cost_of_revenue_raw = float(row.get("Cost Of Revenue", 0) or 0)
-	gross_profit_raw = float(row.get("Gross Profit", 0) or 0)
-	operating_expense_raw = float(row.get("Operating Expense", 0) or 0)
-	if operating_expense_raw == 0:
-		operating_expense_raw = float(row.get("Operating Expenses", 0) or 0)
-	operating_income_raw = float(row.get("Operating Income", 0) or 0)
-	net_income_raw = float(row.get("Net Income", 0) or 0)
-
-	if gross_profit_raw == 0 and total_revenue_raw > 0:
-		gross_profit_raw = max(total_revenue_raw - cost_of_revenue_raw, 0)
-	if operating_expense_raw == 0 and gross_profit_raw > 0:
-		operating_expense_raw = max(gross_profit_raw - operating_income_raw, 0)
-
-	period_label = latest_period.strftime("%Y-%m-%d") if hasattr(latest_period, "strftime") else str(latest_period)
-
-	return {
-		"Total Revenue": total_revenue_raw / 1_000_000_000,
-		"Cost Of Revenue": cost_of_revenue_raw / 1_000_000_000,
-		"Gross Profit": gross_profit_raw / 1_000_000_000,
-		"Operating Expense": operating_expense_raw / 1_000_000_000,
-		"Operating Income": operating_income_raw / 1_000_000_000,
-		"Net Income": net_income_raw / 1_000_000_000,
-	}, period_label
-
-
-@st.cache_data(ttl=3600)
-def fetch_dcf_baseline_inputs(ticker: str) -> dict:
-	stock = yf.Ticker(ticker)
-	info = stock.info
-	cashflow = stock.cashflow
-
-	shares_outstanding = float(info.get("sharesOutstanding") or 0)
-	current_price = float(info.get("currentPrice") or 0)
-
-	base_fcf = 0.0
-	if cashflow is not None and not cashflow.empty and "Free Cash Flow" in cashflow.index:
-		value = cashflow.loc["Free Cash Flow"].iloc[0]
-		if value is not None:
-			base_fcf = float(value)
-
-	return {
-		"shares_outstanding": shares_outstanding,
-		"current_price": current_price,
-		"base_fcf": base_fcf,
+	[data-testid="stMarkdownContainer"] h1,
+	[data-testid="stMarkdownContainer"] h2 {
+		padding-top: 0.35rem;
+		border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+		padding-bottom: 0.3rem;
 	}
 
+	[data-testid="stMarkdownContainer"] p,
+	[data-testid="stMarkdownContainer"] li {
+		font-size: 0.98rem;
+		line-height: 1.7;
+		color: #334155;
+	}
 
-section = st.sidebar.radio(
-	"Section",
-	[
-		"💰 Earnings Breakdown",
-		"🧮 Interactive DCF",
-	],
-	key="active_section",
+	[data-testid="stMarkdownContainer"] table {
+		width: 100%;
+		border-collapse: collapse;
+		margin: 1rem 0 1.25rem;
+		background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.98));
+		border: 1px solid rgba(148, 163, 184, 0.22);
+		border-radius: 14px;
+		overflow: hidden;
+	}
+
+	[data-testid="stMarkdownContainer"] th {
+		background: #e2e8f0;
+		color: #0f172a;
+		font-weight: 700;
+	}
+
+	[data-testid="stMarkdownContainer"] th,
+	[data-testid="stMarkdownContainer"] td {
+		padding: 0.75rem 0.9rem;
+		border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+		text-align: left;
+	}
+
+	.ai-report-shell {
+		margin-top: 0.35rem;
+		padding: 1.25rem;
+		border-radius: 24px;
+		background:
+			radial-gradient(circle at top right, rgba(14, 165, 233, 0.12), transparent 24%),
+			linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.98));
+		border: 1px solid rgba(148, 163, 184, 0.18);
+		box-shadow: 0 22px 40px rgba(15, 23, 42, 0.08);
+	}
+
+	.ai-report-header {
+		padding: 0.25rem 0 1rem;
+		margin-bottom: 1rem;
+		border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+	}
+
+	.ai-report-kicker {
+		font-size: 0.76rem;
+		font-weight: 800;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: #0f766e;
+		margin-bottom: 0.45rem;
+	}
+
+	.ai-report-title {
+		margin: 0;
+		font-size: clamp(1.5rem, 1.15rem + 1vw, 2.2rem);
+		line-height: 1.1;
+		font-weight: 800;
+		letter-spacing: -0.03em;
+		color: #0f172a;
+		border: 0 !important;
+		padding: 0 !important;
+	}
+
+	.ai-report-subtitle {
+		margin: 0.7rem 0 0;
+		max-width: 52rem;
+		font-size: 1rem;
+		line-height: 1.7;
+		color: #475569;
+	}
+
+	.ai-report-peer-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.75rem;
+		margin-top: 1rem;
+	}
+
+	.ai-report-peer-label {
+		font-size: 0.82rem;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: #64748b;
+	}
+
+	.ai-report-peer-chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+
+	.ai-report-chip {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.42rem 0.7rem;
+		border-radius: 999px;
+		background: rgba(14, 165, 233, 0.1);
+		border: 1px solid rgba(14, 165, 233, 0.18);
+		font-size: 0.88rem;
+		font-weight: 700;
+		color: #0f172a;
+	}
+
+	.ai-report-grid {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 1rem;
+	}
+
+	.ai-report-section {
+		display: grid;
+		grid-template-columns: 56px minmax(0, 1fr);
+		gap: 0.9rem;
+		padding: 1rem;
+		border-radius: 20px;
+		background: rgba(255, 255, 255, 0.82);
+		border: 1px solid rgba(148, 163, 184, 0.18);
+		backdrop-filter: blur(6px);
+	}
+
+	.ai-report-section-index {
+		display: flex;
+		align-items: flex-start;
+		justify-content: center;
+		padding-top: 0.2rem;
+		font-size: 0.86rem;
+		font-weight: 800;
+		letter-spacing: 0.08em;
+		color: #0891b2;
+	}
+
+	.ai-report-section-body {
+		min-width: 0;
+	}
+
+	.ai-report-section-title {
+		margin: 0 0 0.7rem;
+		font-size: 1.15rem;
+		line-height: 1.25;
+		font-weight: 800;
+		letter-spacing: -0.02em;
+		color: #0f172a;
+	}
+
+	.ai-report-paragraph {
+		margin: 0 0 0.8rem;
+		font-size: 0.98rem;
+		line-height: 1.8;
+		color: #334155;
+	}
+
+	.ai-report-list {
+		margin: 0.2rem 0 0.85rem;
+		padding-left: 1.15rem;
+		color: #334155;
+	}
+
+	.ai-report-list li {
+		margin-bottom: 0.45rem;
+		padding-left: 0.2rem;
+		line-height: 1.7;
+	}
+
+	.ai-report-inline-code {
+		padding: 0.12rem 0.42rem;
+		border-radius: 8px;
+		background: rgba(15, 23, 42, 0.06);
+		font-size: 0.88em;
+		color: #0f172a;
+	}
+
+	.ai-report-table-wrap {
+		overflow-x: auto;
+		margin: 0.25rem 0 0.9rem;
+	}
+
+	.ai-report-table {
+		width: 100%;
+		min-width: 420px;
+		border-collapse: collapse;
+		background: rgba(248, 250, 252, 0.75);
+		border: 1px solid rgba(148, 163, 184, 0.18);
+		border-radius: 16px;
+		overflow: hidden;
+	}
+
+	.ai-report-table th {
+		background: rgba(226, 232, 240, 0.88);
+		font-size: 0.8rem;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: #334155;
+	}
+
+	.ai-report-table td {
+		font-size: 0.94rem;
+		color: #1e293b;
+	}
+
+	.ai-report-fallback {
+		padding-top: 0.25rem;
+	}
+
+	@media (max-width: 768px) {
+		.ai-report-shell {
+			padding: 1rem;
+			border-radius: 20px;
+		}
+
+		.ai-report-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.ai-report-section {
+			grid-template-columns: 1fr;
+			gap: 0.4rem;
+		}
+
+		.ai-report-section-index {
+			justify-content: flex-start;
+		}
+	}
+	</style>
+	""",
+	unsafe_allow_html=True,
 )
 
-if section == "💰 Earnings Breakdown":
-	st.header("💰 Earnings Breakdown")
-	st.caption("Dynamic Sankey diagram from the latest reported income statement.")
-	period_type = st.segmented_control(
-		"Period",
-		options=["Annual", "Quarterly"],
-		default="Annual",
-		key="earnings_period",
+st.title("AutoGraham")
+st.caption("Modular equity research workspace for financials, valuation, and future AI analysis.")
+
+ticker = st.text_input("Stock ticker", value="").strip().upper()
+if not ticker:
+	st.info("Enter a stock ticker to load the dashboard.")
+	st.stop()
+
+try:
+	stock_data = fetch_stock_data(ticker)
+
+except Exception as exc:
+	st.error(f"Unable to load data for {ticker}: {exc}")
+	st.stop()
+
+tab1, tab2, tab3 = st.tabs(["Financials Dashboard", "DCF Valuation", "AI Analyst"])
+
+with tab1:
+	render_metrics_header(stock_data.info)
+	render_waterfall_chart(stock_data.quarterly_income_stmt)
+
+with tab2:
+	render_dcf_calculator(stock_data.info)
+
+with tab3:
+	st.subheader("AI Analyst")
+	analysis_focus = st.text_area(
+		"Analysis focus",
+		value=(
+			"Focus on competitive positioning, valuation gaps, profitability quality, "
+			"and which stock offers the best margin of safety."
+		),
+		height=120,
+		key="ai_analysis_focus",
 	)
-	if period_type is None:
-		period_type = "Annual"
-	try:
-		metrics, period_label = fetch_income_statement_metrics(ticker, period_type)
 
-		total_revenue = metrics.get("Total Revenue", 0)
-		cost_of_revenue = metrics.get("Cost Of Revenue", 0)
-		gross_profit = metrics.get("Gross Profit", 0)
-		operating_expenses = metrics.get("Operating Expense", 0)
-		operating_income = metrics.get("Operating Income", 0)
-		net_income = metrics.get("Net Income", 0)
-		taxes_other = operating_income - net_income
-
-		total_revenue_label = "Total Revenue" if total_revenue >= 0 else "Revenue Reversal"
-		cost_of_revenue_label = "Cost of Revenue" if cost_of_revenue >= 0 else "Cost Recovery"
-		gross_profit_label = "Gross Profit" if gross_profit >= 0 else "Gross Loss"
-		operating_expenses_label = "Operating Expenses" if operating_expenses >= 0 else "Operating Credit"
-		operating_income_label = "Operating Income" if operating_income >= 0 else "Operating Loss"
-		taxes_other_label = "Taxes & Other" if taxes_other >= 0 else "Tax Benefit & Other Income"
-		net_income_label = "Net Income" if net_income >= 0 else "Net Loss"
-
-		labels_base = [
-			total_revenue_label,
-			cost_of_revenue_label,
-			gross_profit_label,
-			operating_expenses_label,
-			operating_income_label,
-			taxes_other_label,
-			net_income_label,
-		]
-
-		label_amounts = [
-			total_revenue,
-			cost_of_revenue,
-			gross_profit,
-			operating_expenses,
-			operating_income,
-			taxes_other,
-			net_income,
-		]
-		labels = [f"{label}<br>${amount:,.1f}B" for label, amount in zip(labels_base, label_amounts)]
-
-		sources = [0, 0, 2, 2, 4, 4]
-		targets = [1, 2, 3, 4, 5, 6]
-		values = [
-			abs(cost_of_revenue),
-			abs(gross_profit),
-			abs(operating_expenses),
-			abs(operating_income),
-			abs(taxes_other),
-			abs(net_income),
-		]
-		expense_node_indices = set()
-		if cost_of_revenue >= 0:
-			expense_node_indices.add(1)
-		if operating_expenses >= 0:
-			expense_node_indices.add(3)
-		if taxes_other >= 0:
-			expense_node_indices.add(5)
-		if gross_profit < 0:
-			expense_node_indices.add(2)
-		if operating_income < 0:
-			expense_node_indices.add(4)
-		if net_income < 0:
-			expense_node_indices.add(6)
-		if total_revenue < 0:
-			expense_node_indices.add(0)
-		node_colors = ["#D32F2F" if idx in expense_node_indices else "#2E7D32" for idx in range(len(labels))]
-		link_colors = [
-			"rgba(211,47,47,0.45)" if target in expense_node_indices else "rgba(46,125,50,0.45)"
-			for target in targets
-		]
-		node_x = [0.02, 0.30, 0.30, 0.58, 0.58, 0.86, 0.86]
-		node_y = [0.50, 0.22, 0.78, 0.22, 0.78, 0.22, 0.78]
-
-		fig = go.Figure(
-			data=[
-				go.Sankey(
-					arrangement="snap",
-					textfont={"size": 14, "color": "#111111", "family": "Arial, sans-serif"},
-					hoverlabel={"font": {"size": 13, "color": "#111111"}},
-					node={
-						"label": labels,
-						"pad": 28,
-						"thickness": 22,
-						"x": node_x,
-						"y": node_y,
-						"color": node_colors,
-						"line": {"color": "rgba(0,0,0,0.18)", "width": 1},
-					},
-					link={
-						"source": sources,
-						"target": targets,
-						"value": values,
-						"color": link_colors,
-					},
+	if st.button("Run Competitor Analysis", key="run_competitor_analysis"):
+		st.session_state.pop("ai_analysis_error", None)
+		with st.spinner(f"Building investment memo for {ticker}..."):
+			try:
+				analysis_result = run_competitor_analysis(
+					ticker,
+					model_name=st.session_state.get("agent_model") or None,
+					analysis_focus=analysis_focus,
 				)
-			]
-		)
-		fig.update_layout(
-			title=f"{ticker} Income Statement Flow ({period_label})",
-			margin={"t": 60, "l": 0, "r": 0, "b": 0},
-			font={"size": 13, "color": "#111111", "family": "Arial, sans-serif"},
-			title_font={"size": 20, "color": "#111111"},
-			paper_bgcolor="rgba(0,0,0,0)",
-			plot_bgcolor="rgba(0,0,0,0)",
-		)
-		st.plotly_chart(fig, use_container_width=True)
+				st.session_state["ai_analysis_result"] = analysis_result
+			except Exception as exc:
+				st.session_state.pop("ai_analysis_result", None)
+				st.session_state["ai_analysis_error"] = str(exc)
 
-		c1, c2, c3 = st.columns(3)
-		cogs_pct = (cost_of_revenue / total_revenue) if total_revenue else 0.0
-		gross_margin = (gross_profit / total_revenue) if total_revenue else 0.0
-		net_margin = (net_income / total_revenue) if total_revenue else 0.0
-		c1.metric("COGS % of Revenue", f"{cogs_pct:.1%}")
-		c2.metric("Gross Margin", f"{gross_margin:.1%}")
-		c3.metric("Net Margin", f"{net_margin:.1%}")
-	except Exception as exc:
-		st.error(f"Unable to load earnings breakdown: {exc}")
+	if st.session_state.get("ai_analysis_error"):
+		st.error(st.session_state["ai_analysis_error"])
 
-elif section == "🧮 Interactive DCF":
-	st.header("🧮 Interactive DCF")
-	st.caption("Adjust assumptions to estimate intrinsic value per share in real time.")
-
-	try:
-		baseline = fetch_dcf_baseline_inputs(ticker)
-		base_fcf_default = baseline["base_fcf"] / 1_000_000_000 if baseline["base_fcf"] else 10.0
-		shares_outstanding = baseline["shares_outstanding"]
-		current_price = baseline["current_price"]
-
-		col1, col2 = st.columns(2)
-		base_fcf_b = col1.number_input("Base FCF (USD, billions)", min_value=0.1, value=float(base_fcf_default), step=0.5)
-		years = col2.slider("Forecast Years", min_value=3, max_value=15, value=10)
-
-		col3, col4, col5 = st.columns(3)
-		growth_rate = col3.slider("FCF Growth (%)", min_value=-5.0, max_value=30.0, value=8.0, step=0.5) / 100
-		discount_rate = col4.slider("Discount Rate (%)", min_value=5.0, max_value=20.0, value=10.0, step=0.5) / 100
-		terminal_growth = col5.slider("Terminal Growth (%)", min_value=0.0, max_value=5.0, value=2.5, step=0.1) / 100
-
-		net_cash_b = st.number_input("Net Cash / (Debt) Adjustment (USD, billions)", value=0.0, step=1.0)
-
-		if discount_rate <= terminal_growth:
-			st.warning("Discount rate must be greater than terminal growth rate.")
-		else:
-			base_fcf = base_fcf_b * 1_000_000_000
-			net_cash = net_cash_b * 1_000_000_000
-			projected_fcfs = []
-			discounted_fcfs = []
-
-			for year in range(1, years + 1):
-				fcf = base_fcf * ((1 + growth_rate) ** year)
-				discounted = fcf / ((1 + discount_rate) ** year)
-				projected_fcfs.append(fcf)
-				discounted_fcfs.append(discounted)
-
-			terminal_fcf = projected_fcfs[-1] * (1 + terminal_growth)
-			terminal_value = terminal_fcf / (discount_rate - terminal_growth)
-			terminal_pv = terminal_value / ((1 + discount_rate) ** years)
-
-			enterprise_value = sum(discounted_fcfs) + terminal_pv
-			equity_value = enterprise_value + net_cash
-
-			intrinsic_value_per_share = equity_value / shares_outstanding if shares_outstanding else 0.0
-
-			k1, k2, k3 = st.columns(3)
-			k1.metric("Intrinsic Value / Share", f"${intrinsic_value_per_share:,.2f}")
-			k2.metric("Current Price", f"${current_price:,.2f}" if current_price else "N/A")
-			if current_price:
-				diff = (intrinsic_value_per_share / current_price) - 1
-				k3.metric("Upside / Downside", f"{diff:.1%}")
-			else:
-				k3.metric("Upside / Downside", "N/A")
-
-			dcf_chart = st.line_chart(
-				{
-					"Projected FCF": projected_fcfs,
-					"Discounted FCF": discounted_fcfs,
-				}
-			)
-			_ = dcf_chart
-
-	except Exception:
-		st.warning("DCF inputs are unavailable for this ticker.")
+	if st.session_state.get("ai_analysis_result"):
+		st.markdown(render_ai_report(st.session_state["ai_analysis_result"]), unsafe_allow_html=True)
+	else:
+		st.info("Run the AI analyst to generate a competitor memo for the selected ticker.")
