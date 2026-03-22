@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 from pathlib import Path
 
 import streamlit as st
@@ -19,6 +20,53 @@ def render_ticker_input(label: str = "Stock ticker", default: str = "") -> str:
 	ticker = st.text_input(label, value=current_value).strip().upper()
 	st.session_state["selected_ticker"] = ticker
 	return ticker
+
+
+def render_page_hero(
+	title: str,
+	description: str,
+	*,
+	eyebrow: str | None = None,
+	status: str | None = None,
+	pills: list[str] | None = None,
+) -> None:
+	title_markup = ""
+	if title:
+		title_markup = f'<h1 class="ag-page-hero-title">{escape(title)}</h1>'
+
+	pills_markup = ""
+	if pills:
+		pills_markup = "".join(
+			f'<span class="ag-page-hero-pill">{escape(pill)}</span>' for pill in pills if pill
+		)
+		pills_markup = f'<div class="ag-page-hero-pills">{pills_markup}</div>'
+
+	status_markup = ""
+	if status:
+		status_markup = f'<div class="ag-page-hero-status">{escape(status)}</div>'
+
+	eyebrow_markup = ""
+	if eyebrow:
+		eyebrow_markup = f'<div class="ag-page-hero-eyebrow">{escape(eyebrow)}</div>'
+
+	st.markdown(
+		(
+			f'<section class="ag-page-hero">'
+			f'<div class="ag-page-hero-orb ag-page-hero-orb-primary"></div>'
+			f'<div class="ag-page-hero-orb ag-page-hero-orb-secondary"></div>'
+			f'<div class="ag-page-hero-grid">'
+			f'<div class="ag-page-hero-copy">'
+			f"{eyebrow_markup}"
+			f"{title_markup}"
+			f'<p class="ag-page-hero-description">{escape(description)}</p>'
+			f"{pills_markup}"
+			f"</div>"
+			f"{status_markup}"
+			f"</div>"
+			f"</section>"
+		),
+		unsafe_allow_html=True,
+	)
 
 
 def render_metrics_header(info_dict) -> None:
@@ -54,4 +102,4 @@ def render_income_waterfall(income_stmt) -> None:
 	selected_label = st.selectbox("Quarter", period_labels, key="quarterly_period")
 	selected_column = ordered_columns[period_labels.index(selected_label)]
 	figure, _ = build_income_waterfall_figure(income_stmt, selected_column=selected_column)
-	st.plotly_chart(figure, use_container_width=True)
+	st.plotly_chart(figure, width="stretch")

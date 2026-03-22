@@ -33,15 +33,9 @@ Available valuation models:
 - RIM
 
 Available variants for reasoning:
-- single_stage
-- two_stage
-- multi_stage
-
-Variant output mapping for AutoGraham:
-- single_stage -> "Single-Stage (Stable)"
-- two_stage -> "Two-Stage"
-- multi_stage -> "Three-Stage (Multi-stage decay)"
-- If you select RIM, set "selected_variant" to null
+- DCF: set "selected_variant" to null
+- DDM: "Single-Stage (Stable)", "Two-Stage", "Three-Stage (Multi-stage decay)", or "H-Model"
+- RIM: set "selected_variant" to null
 
 Your responsibilities:
 1. Review the company's business type, financial characteristics, and available candidate facts.
@@ -65,17 +59,15 @@ High-level model guidance:
 - RIM is often more appropriate for banks, insurers, and other financial firms where book value and return on equity are central.
 - DDM is often more appropriate for mature, stable dividend-paying companies when dividends are meaningful and relatively predictable.
 - DCF is often more appropriate for operating companies where cash flow is the core driver and reasonably estimable.
-- If the company is in transition or expected to normalize over time, prefer two_stage or multi_stage.
-- If the company appears already close to steady-state, single_stage may be appropriate.
-- If there is enough information for an explicit year-by-year path, prefer multi_stage.
-- If only near-term vs normalized assumptions are supportable, prefer two_stage.
+- The current deterministic DCF path is a simple model using one growth_rate, one projection horizon, and one terminal growth assumption.
 - Additional analysis focus: {focus}
 
 Output requirements:
 - You must output structured JSON only.
 - Do not output markdown.
 - "selected_model" must be exactly one of: "DCF", "DDM", "RIM".
-- "selected_variant" must be exactly one of: "Single-Stage (Stable)", "Two-Stage", "Three-Stage (Multi-stage decay)", or null.
+- "selected_variant" must be null for DCF and RIM.
+- "selected_variant" must be exactly one of: "Single-Stage (Stable)", "Two-Stage", "Three-Stage (Multi-stage decay)", "H-Model", or null.
 - "preferred_calculation_model" must be "FCFF" or "FCFE" when "selected_model" is "DCF".
 - "preferred_calculation_model" must be "DDM" when "selected_model" is "DDM".
 - "preferred_calculation_model" must be "RIM" when "selected_model" is "RIM".
@@ -84,11 +76,11 @@ Output requirements:
 Return structured JSON only:
 {{
   "selected_model": "DCF",
-  "selected_variant": "Two-Stage",
+  "selected_variant": null,
   "preferred_calculation_model": "FCFF",
   "model_reason": "brief explanation",
   "confidence": 0.72,
-  "required_parameters_next": ["current_fcff", "shares_outstanding", "wacc", "high_growth", "projection_years", "terminal_growth", "total_debt", "cash", "current_price"],
+  "required_parameters_next": ["current_fcff", "shares_outstanding", "wacc", "growth_rate", "projection_years", "terminal_growth", "total_debt", "cash", "current_price"],
   "available_data_points": ["current_price", "shares_outstanding"],
   "missing_or_weak_data_points": ["current_fcff", "wacc"]
 }}

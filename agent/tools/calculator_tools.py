@@ -10,8 +10,17 @@ from agent.tools.validation_tools import validate_parameter_payload
 ASSUMPTION_LABELS = {
 	"wacc": "WACC",
 	"cost_of_equity": "Cost of Equity",
+	"growth_rate": "Growth Rate",
+	"revenue": "Revenue Forecast",
+	"ebit_margin": "EBIT Margin Forecast",
+	"tax_rate": "Tax Rate Forecast",
+	"depreciation": "Depreciation Forecast",
+	"capex": "Capex Forecast",
+	"change_in_nwc": "Change in NWC Forecast",
+	"ebit_margin": "EBIT Margin Forecast",
+	"tax_rate": "Tax Rate Forecast",
+	"net_borrowing": "Net Borrowing Forecast",
 	"required_return": "Required Return",
-	"unlevered_cost": "Unlevered Cost of Capital",
 	"high_growth": "High Growth",
 	"stable_growth": "Stable Growth",
 	"terminal_growth": "Terminal Growth",
@@ -22,6 +31,9 @@ ASSUMPTION_LABELS = {
 	"half_life_years": "H-Model Half-Life",
 	"return_on_equity": "Forward ROE",
 	"payout_ratio": "Payout Ratio",
+	"total_debt": "Total Debt",
+	"cash": "Cash",
+	"shares_outstanding": "Shares Outstanding",
 }
 
 FACT_LABELS = {
@@ -71,17 +83,36 @@ def assumption_keys_for_choice(selected_model: str, growth_stage: str | None) ->
 	"""Return the parameter keys most relevant to the selected calculation path."""
 
 	if selected_model == "FCFF":
-		if growth_stage == "Single-Stage (Stable)":
-			return ["wacc", "stable_growth"]
-		if growth_stage == "Three-Stage (Multi-stage decay)":
-			return ["wacc", "high_growth", "high_growth_years", "transition_years", "terminal_growth"]
-		return ["wacc", "high_growth", "projection_years", "terminal_growth"]
+		if growth_stage == "Drivers":
+			return [
+				"revenue",
+				"ebit_margin",
+				"tax_rate",
+				"depreciation",
+				"capex",
+				"change_in_nwc",
+				"wacc",
+				"terminal_growth",
+				"total_debt",
+				"cash",
+				"shares_outstanding",
+			]
+		return ["wacc", "growth_rate", "projection_years", "terminal_growth"]
 	if selected_model == "FCFE":
-		if growth_stage == "Single-Stage (Stable)":
-			return ["cost_of_equity", "stable_growth"]
-		if growth_stage == "Three-Stage (Multi-stage decay)":
-			return ["cost_of_equity", "high_growth", "high_growth_years", "transition_years", "terminal_growth"]
-		return ["cost_of_equity", "high_growth", "projection_years", "terminal_growth"]
+		if growth_stage == "Drivers":
+			return [
+				"revenue",
+				"ebit_margin",
+				"tax_rate",
+				"depreciation",
+				"capex",
+				"change_in_nwc",
+				"net_borrowing",
+				"cost_of_equity",
+				"terminal_growth",
+				"shares_outstanding",
+			]
+		return ["cost_of_equity", "growth_rate", "projection_years", "terminal_growth"]
 	if selected_model == "DDM":
 		if growth_stage == "Single-Stage (Stable)":
 			return ["required_return", "stable_growth"]
@@ -103,47 +134,19 @@ def default_parameter_fallback(
 
 	calculation_code = calculation_model or ("FCFF" if selected_model == "DCF" else selected_model)
 	if calculation_code == "FCFF":
-		assumptions = {"wacc": defaults["wacc"]}
-		if selected_variant == "Single-Stage (Stable)":
-			assumptions["stable_growth"] = defaults["stable_growth"]
-		elif selected_variant == "Three-Stage (Multi-stage decay)":
-			assumptions.update(
-				{
-					"high_growth": defaults["high_growth"],
-					"high_growth_years": defaults["high_growth_years"],
-					"transition_years": defaults["transition_years"],
-					"terminal_growth": defaults["stable_growth"],
-				}
-			)
-		else:
-			assumptions.update(
-				{
-					"high_growth": defaults["high_growth"],
-					"projection_years": defaults["projection_years"],
-					"terminal_growth": defaults["stable_growth"],
-				}
-			)
+		assumptions = {
+			"wacc": defaults["wacc"],
+			"growth_rate": defaults["high_growth"],
+			"projection_years": defaults["projection_years"],
+			"terminal_growth": defaults["stable_growth"],
+		}
 	elif calculation_code == "FCFE":
-		assumptions = {"cost_of_equity": defaults["cost_of_equity"]}
-		if selected_variant == "Single-Stage (Stable)":
-			assumptions["stable_growth"] = defaults["stable_growth"]
-		elif selected_variant == "Three-Stage (Multi-stage decay)":
-			assumptions.update(
-				{
-					"high_growth": defaults["high_growth"],
-					"high_growth_years": defaults["high_growth_years"],
-					"transition_years": defaults["transition_years"],
-					"terminal_growth": defaults["stable_growth"],
-				}
-			)
-		else:
-			assumptions.update(
-				{
-					"high_growth": defaults["high_growth"],
-					"projection_years": defaults["projection_years"],
-					"terminal_growth": defaults["stable_growth"],
-				}
-			)
+		assumptions = {
+			"cost_of_equity": defaults["cost_of_equity"],
+			"growth_rate": defaults["high_growth"],
+			"projection_years": defaults["projection_years"],
+			"terminal_growth": defaults["stable_growth"],
+		}
 	elif calculation_code == "DDM":
 		assumptions = {"required_return": defaults["cost_of_equity"]}
 		if selected_variant == "H-Model":
@@ -243,6 +246,7 @@ def run_valuation_calculation(parameter_payload: Mapping[str, Any]) -> dict[str,
 	payload["assumptions"] = assumption_rows
 	payload["parameter_reason"] = str(parameter_payload.get("parameter_reason") or "").strip()
 	payload["confidence"] = parameter_payload.get("confidence")
+	payload["weak_or_uncertain_inputs"] = list(parameter_payload.get("weak_or_uncertain_inputs") or [])
 	return payload
 
 

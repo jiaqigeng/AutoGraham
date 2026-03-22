@@ -49,7 +49,7 @@ def _rule_based_selection(
 	preferred_model = "FCFF" if defaults["starting_fcff"] >= defaults["starting_fcfe"] else "FCFE"
 	return ModelRecommendation(
 		selected_model="DCF",
-		selected_variant=variant,
+		selected_variant=None,
 		preferred_calculation_model=preferred_model,
 		model_reason="An operating-company cash-flow framework appears to be the most practical base case.",
 		confidence=0.68,
@@ -66,6 +66,8 @@ def _choice_is_plausible(choice: Mapping[str, Any], defaults: Mapping[str, float
 	if selected_model == "RIM" and defaults["book_value_per_share"] <= 0:
 		return False
 	if selected_model == "DCF" and max(defaults["starting_fcff"], defaults["starting_fcfe"]) <= 0:
+		return False
+	if selected_model == "DCF" and selected_variant is not None:
 		return False
 	if selected_model != "DDM" and selected_variant == "H-Model":
 		return False

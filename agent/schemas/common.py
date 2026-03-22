@@ -56,3 +56,4 @@ class ParameterPayload(FlexibleSchema):
 	assumptions: dict[str, Any] = Field(default_factory=dict)
 	assumption_reasons: list[AssumptionReason] = Field(default_factory=list)
 	confidence: float | None = None
+	weak_or_uncertain_inputs: list[str] = Field(default_factory=list)

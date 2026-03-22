@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from valuation.common import margin_of_safety
+from valuation.dcf import calculate_fcfe_dcf_simple, calculate_fcff_dcf_simple
 from valuation import calculate_model, default_valuation_inputs
 from valuation.types import ValuationResult
 
@@ -10,7 +12,6 @@ MODEL_OPTIONS = [
 	"Free Cash Flow to Firm (FCFF) - Unlevered DCF",
 	"Free Cash Flow to Equity (FCFE) - Levered DCF",
 	"Dividend Discount Model (DDM)",
-	"Adjusted Present Value (APV)",
 	"Residual Income Model (RIM)",
 ]
 
@@ -32,12 +33,6 @@ MODEL_META = {
 		"short": "DDM",
 		"eyebrow": "Distribution-based valuation",
 		"description": "Frames value through dividend capacity and works best for mature payout-heavy businesses.",
-	},
-	"Adjusted Present Value (APV)": {
-		"code": "APV",
-		"short": "APV",
-		"eyebrow": "Capital structure overlay",
-		"description": "Separates operating value from financing side effects so tax shields can be inspected explicitly.",
 	},
 	"Residual Income Model (RIM)": {
 		"code": "RIM",
@@ -75,9 +70,74 @@ def _registry_payload(assumptions: Mapping[str, float]) -> dict[str, float]:
 	}
 
 
+def _simple_schedule_to_rows(schedule: list[object]) -> list[dict[str, float | int | str]]:
+	rows: list[dict[str, float | int | str]] = []
+	for row in schedule:
+		rows.append(
+			{
+				"Year": getattr(row, "year"),
+				"Growth Rate": getattr(row, "growth_rate"),
+				"Cash Flow": getattr(row, "cash_flow"),
+				"Discount Rate": getattr(row, "discount_rate"),
+				"Discount Factor": getattr(row, "discount_factor"),
+				"Discounted Cash Flow": getattr(row, "discounted_cash_flow"),
+			}
+		)
+	return rows
+
+
+def _run_manual_dcf_simple(model_code: str, assumptions: Mapping[str, float]) -> ValuationResult:
+	current_price = float(assumptions.get("current_price", 0.0))
+	if model_code == "FCFF":
+		result = calculate_fcff_dcf_simple(
+			current_fcff=float(assumptions.get("starting_fcff", 0.0)),
+			growth_rate=float(assumptions["growth_rate"]),
+			projection_years=int(assumptions["projection_years"]),
+			wacc=float(assumptions["wacc"]),
+			terminal_growth=float(assumptions["terminal_growth"]),
+			total_debt=float(assumptions.get("total_debt", 0.0)),
+			cash=float(assumptions.get("cash", 0.0)),
+			shares_outstanding=float(assumptions["shares_outstanding"]),
+		)
+		return ValuationResult(
+			model_label="FCFF",
+			stage_label="Simple DCF",
+			equity_value=result.equity_value,
+			fair_value_per_share=result.fair_value_per_share,
+			current_price=current_price,
+			margin_of_safety=margin_of_safety(result.fair_value_per_share, current_price),
+			present_value_of_cash_flows=result.pv_forecast_cash_flows,
+			discounted_terminal_value=result.pv_terminal_value,
+			enterprise_value=result.enterprise_value,
+			schedule=_simple_schedule_to_rows(result.schedule),
+		)
+
+	result = calculate_fcfe_dcf_simple(
+		current_fcfe=float(assumptions.get("starting_fcfe", 0.0)),
+		growth_rate=float(assumptions["growth_rate"]),
+		projection_years=int(assumptions["projection_years"]),
+		cost_of_equity=float(assumptions["cost_of_equity"]),
+		terminal_growth=float(assumptions["terminal_growth"]),
+		shares_outstanding=float(assumptions["shares_outstanding"]),
+	)
+	return ValuationResult(
+		model_label="FCFE",
+		stage_label="Simple DCF",
+		equity_value=result.equity_value,
+		fair_value_per_share=result.fair_value_per_share,
+		current_price=current_price,
+		margin_of_safety=margin_of_safety(result.fair_value_per_share, current_price),
+		present_value_of_cash_flows=result.pv_forecast_cash_flows,
+		discounted_terminal_value=result.pv_terminal_value,
+		schedule=_simple_schedule_to_rows(result.schedule),
+	)
+
+
 def run_manual_valuation(
 	model_code: str,
 	growth_stage: str | None,
 	assumptions: Mapping[str, float],
 ) -> ValuationResult:
+	if model_code in {"FCFF", "FCFE"}:
+		return _run_manual_dcf_simple(model_code, assumptions)
 	return calculate_model(model_code, growth_stage, _registry_payload(assumptions))

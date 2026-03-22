@@ -162,7 +162,7 @@ def _render_valuation_shell_css() -> None:
 
 def _render_hero(model: str, growth_stage: str | None) -> None:
 	meta = MODEL_META[model]
-	stage_label = growth_stage or meta["short"]
+	stage_label = growth_stage or ("Simple DCF" if meta["short"] in {"FCFF", "FCFE"} else meta["short"])
 	st.markdown(
 		f"""
 		<div class="valuation-shell">
@@ -241,23 +241,14 @@ def _render_fcfe_inputs(defaults: dict[str, float], growth_stage: str, scope: st
 			("Current Price", format_price(defaults["current_price"]), "Latest market price from Yahoo Finance."),
 		],
 	)
+	_render_note_card("This tab now uses the simple FCFE DCF: one fixed growth rate, one flat cost of equity, and one terminal growth rate.")
 	col1, col2, col3 = st.columns(3)
-	cost_of_equity = col1.number_input("Cost of Equity (%)", min_value=0.1, value=float(defaults["cost_of_equity"] * 100), step=0.5, key=_input_key(scope, prefix, "cost_of_equity")) / 100
-	assumptions = dict(defaults, cost_of_equity=cost_of_equity)
-	if growth_stage == "Single-Stage (Stable)":
-		assumptions["stable_growth"] = col2.number_input("Stable Growth (%)", value=float(defaults["stable_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "stable_growth")) / 100
-		return _run("Free Cash Flow to Equity (FCFE) - Levered DCF", growth_stage, assumptions)
-	if growth_stage == "Two-Stage":
-		assumptions["high_growth"] = col2.number_input("Stage 1 Growth (%)", value=float(defaults["high_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "high_growth")) / 100
-		assumptions["projection_years"] = int(col3.number_input("Stage 1 Years", min_value=1, max_value=20, value=int(defaults["projection_years"]), step=1, key=_input_key(scope, prefix, "projection_years")))
-		assumptions["terminal_growth"] = st.number_input("Terminal Growth (%)", value=float(defaults["stable_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "terminal_growth")) / 100
-		return _run("Free Cash Flow to Equity (FCFE) - Levered DCF", growth_stage, assumptions)
-	assumptions["high_growth"] = col2.number_input("High Growth (%)", value=float(defaults["high_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "high_growth_three")) / 100
-	assumptions["high_growth_years"] = int(col3.number_input("High Growth Years", min_value=1, max_value=20, value=int(defaults["high_growth_years"]), step=1, key=_input_key(scope, prefix, "high_growth_years")))
-	col4, col5 = st.columns(2)
-	assumptions["transition_years"] = int(col4.number_input("Fade Years", min_value=1, max_value=20, value=int(defaults["transition_years"]), step=1, key=_input_key(scope, prefix, "transition_years")))
-	assumptions["terminal_growth"] = col5.number_input("Terminal Growth (%)", value=float(defaults["stable_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "terminal_growth_three")) / 100
-	return _run("Free Cash Flow to Equity (FCFE) - Levered DCF", growth_stage, assumptions)
+	assumptions = dict(defaults)
+	assumptions["cost_of_equity"] = col1.number_input("Cost of Equity (%)", min_value=0.1, value=float(defaults["cost_of_equity"] * 100), step=0.5, key=_input_key(scope, prefix, "cost_of_equity")) / 100
+	assumptions["growth_rate"] = col2.number_input("FCFE Growth Rate (%)", value=float(defaults["high_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "growth_rate")) / 100
+	assumptions["projection_years"] = int(col3.number_input("Projection Years", min_value=1, max_value=20, value=int(defaults["projection_years"]), step=1, key=_input_key(scope, prefix, "projection_years")))
+	assumptions["terminal_growth"] = st.number_input("Terminal Growth (%)", value=float(defaults["stable_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "terminal_growth")) / 100
+	return _run("Free Cash Flow to Equity (FCFE) - Levered DCF", None, assumptions)
 
 
 def _render_fcff_inputs(defaults: dict[str, float], growth_stage: str, scope: str):
@@ -272,23 +263,14 @@ def _render_fcff_inputs(defaults: dict[str, float], growth_stage: str, scope: st
 			("Cash", format_compact_currency(defaults["cash"]), "Latest balance-sheet cash and short-term investments."),
 		],
 	)
+	_render_note_card("This tab now uses the simple FCFF DCF: one fixed growth rate, one flat WACC, and one terminal growth rate.")
 	col1, col2, col3 = st.columns(3)
-	wacc = col1.number_input("WACC (%)", min_value=0.1, value=float(defaults["wacc"] * 100), step=0.5, key=_input_key(scope, prefix, "wacc")) / 100
-	assumptions = dict(defaults, wacc=wacc)
-	if growth_stage == "Single-Stage (Stable)":
-		assumptions["stable_growth"] = col2.number_input("Stable Growth (%)", value=float(defaults["stable_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "stable_growth")) / 100
-		return _run("Free Cash Flow to Firm (FCFF) - Unlevered DCF", growth_stage, assumptions)
-	if growth_stage == "Two-Stage":
-		assumptions["high_growth"] = col2.number_input("Stage 1 Growth (%)", value=float(defaults["high_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "high_growth")) / 100
-		assumptions["projection_years"] = int(col3.number_input("Stage 1 Years", min_value=1, max_value=20, value=int(defaults["projection_years"]), step=1, key=_input_key(scope, prefix, "projection_years")))
-		assumptions["terminal_growth"] = st.number_input("Terminal Growth (%)", value=float(defaults["stable_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "terminal_growth")) / 100
-		return _run("Free Cash Flow to Firm (FCFF) - Unlevered DCF", growth_stage, assumptions)
-	assumptions["high_growth"] = col2.number_input("High Growth (%)", value=float(defaults["high_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "high_growth_three")) / 100
-	assumptions["high_growth_years"] = int(col3.number_input("High Growth Years", min_value=1, max_value=20, value=int(defaults["high_growth_years"]), step=1, key=_input_key(scope, prefix, "high_growth_years")))
-	col4, col5 = st.columns(2)
-	assumptions["transition_years"] = int(col4.number_input("Fade Years", min_value=1, max_value=20, value=int(defaults["transition_years"]), step=1, key=_input_key(scope, prefix, "transition_years")))
-	assumptions["terminal_growth"] = col5.number_input("Terminal Growth (%)", value=float(defaults["stable_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "terminal_growth_three")) / 100
-	return _run("Free Cash Flow to Firm (FCFF) - Unlevered DCF", growth_stage, assumptions)
+	assumptions = dict(defaults)
+	assumptions["wacc"] = col1.number_input("WACC (%)", min_value=0.1, value=float(defaults["wacc"] * 100), step=0.5, key=_input_key(scope, prefix, "wacc")) / 100
+	assumptions["growth_rate"] = col2.number_input("FCFF Growth Rate (%)", value=float(defaults["high_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "growth_rate")) / 100
+	assumptions["projection_years"] = int(col3.number_input("Projection Years", min_value=1, max_value=20, value=int(defaults["projection_years"]), step=1, key=_input_key(scope, prefix, "projection_years")))
+	assumptions["terminal_growth"] = st.number_input("Terminal Growth (%)", value=float(defaults["stable_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "terminal_growth")) / 100
+	return _run("Free Cash Flow to Firm (FCFF) - Unlevered DCF", None, assumptions)
 
 
 def _render_ddm_inputs(defaults: dict[str, float], growth_stage: str, scope: str):
@@ -323,29 +305,6 @@ def _render_ddm_inputs(defaults: dict[str, float], growth_stage: str, scope: str
 	assumptions["short_term_growth"] = col3.number_input("Short-Term Dividend Growth (%)", value=float(defaults["high_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "short_term_growth")) / 100
 	assumptions["stable_growth"] = st.number_input("Stable Dividend Growth (%)", value=float(defaults["stable_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "stable_growth_h")) / 100
 	return _run("Dividend Discount Model (DDM)", growth_stage, assumptions)
-
-
-def _render_apv_inputs(defaults: dict[str, float], scope: str):
-	prefix = "apv"
-	_render_locked_inputs(
-		"Yahoo market inputs",
-		[
-			("Starting FCFF", format_compact_currency(defaults["starting_fcff"]), "Latest annual free cash flow proxy from Yahoo Finance."),
-			("Shares Outstanding", format_shares(defaults["shares_outstanding"]), "Current share-count proxy used for per-share valuation."),
-			("Current Price", format_price(defaults["current_price"]), "Latest market price from Yahoo Finance."),
-			("Total Debt", format_compact_currency(defaults["total_debt"]), "Latest annual balance-sheet debt."),
-			("Cash", format_compact_currency(defaults["cash"]), "Latest annual balance-sheet cash."),
-			("Tax Rate", format_percent(defaults["tax_rate"]), "Latest effective or statement-derived tax rate."),
-			("Cost of Debt", format_percent(defaults["cost_of_debt"]), "Debt cost used to discount APV tax shields."),
-		],
-	)
-	col1, col2, col3, col4 = st.columns(4)
-	assumptions = dict(defaults)
-	assumptions["unlevered_cost"] = col1.number_input("Unlevered Cost of Capital (%)", min_value=0.1, value=float(defaults["unlevered_cost"] * 100), step=0.5, key=_input_key(scope, prefix, "unlevered_cost")) / 100
-	assumptions["high_growth"] = col2.number_input("Stage 1 Growth (%)", value=float(defaults["high_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "high_growth")) / 100
-	assumptions["projection_years"] = int(col3.number_input("Stage 1 Years", min_value=1, max_value=20, value=int(defaults["projection_years"]), step=1, key=_input_key(scope, prefix, "projection_years")))
-	assumptions["terminal_growth"] = col4.number_input("Terminal Growth (%)", value=float(defaults["stable_growth"] * 100), step=0.5, key=_input_key(scope, prefix, "terminal_growth")) / 100
-	return _run("Adjusted Present Value (APV)", None, assumptions)
 
 
 def _render_rim_inputs(defaults: dict[str, float], scope: str):
@@ -384,14 +343,9 @@ def render_valuation_lab(stock_data) -> None:
 	)
 
 	growth_stage: str | None = None
-	if model in {
-		"Free Cash Flow to Firm (FCFF) - Unlevered DCF",
-		"Free Cash Flow to Equity (FCFE) - Levered DCF",
-		"Dividend Discount Model (DDM)",
-	}:
+	if model == "Dividend Discount Model (DDM)":
 		growth_options = list(GROWTH_OPTIONS)
-		if model == "Dividend Discount Model (DDM)":
-			growth_options.append("H-Model")
+		growth_options.append("H-Model")
 		growth_stage = st.segmented_control(
 			"Growth stage assumption",
 			options=growth_options,
@@ -419,13 +373,11 @@ def render_valuation_lab(stock_data) -> None:
 	_render_section_label("Assumption builder")
 	try:
 		if model == "Free Cash Flow to Equity (FCFE) - Levered DCF":
-			result = _render_fcfe_inputs(defaults, growth_stage or "Two-Stage", scope)
+			result = _render_fcfe_inputs(defaults, growth_stage or "Simple DCF", scope)
 		elif model == "Free Cash Flow to Firm (FCFF) - Unlevered DCF":
-			result = _render_fcff_inputs(defaults, growth_stage or "Two-Stage", scope)
+			result = _render_fcff_inputs(defaults, growth_stage or "Simple DCF", scope)
 		elif model == "Dividend Discount Model (DDM)":
 			result = _render_ddm_inputs(defaults, growth_stage or "Two-Stage", scope)
-		elif model == "Adjusted Present Value (APV)":
-			result = _render_apv_inputs(defaults, scope)
 		else:
 			result = _render_rim_inputs(defaults, scope)
 	except ValueError as exc:

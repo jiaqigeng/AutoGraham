@@ -25,7 +25,7 @@ class AIWorkflowTests(unittest.TestCase):
 			"agent.supervisor.select_model",
 			return_value={
 				"selected_model": "DCF",
-				"selected_variant": "Two-Stage",
+				"selected_variant": None,
 				"preferred_calculation_model": "FCFF",
 				"model_reason": "Best fit",
 			},
@@ -33,10 +33,10 @@ class AIWorkflowTests(unittest.TestCase):
 			"agent.supervisor.estimate_parameters",
 			return_value={
 				"selected_model": "DCF",
-				"selected_variant": "Two-Stage",
+				"selected_variant": None,
 				"calculation_model": "FCFF",
 				"fetched_facts": [{"key": "current_price", "label": "Current Price", "value": 100.0, "numeric_value": 100.0}],
-				"assumptions": {"wacc": 0.09, "high_growth": 0.08, "projection_years": 5, "terminal_growth": 0.03},
+				"assumptions": {"wacc": 0.09, "growth_rate": 0.08, "projection_years": 5, "terminal_growth": 0.03},
 				"assumption_reasons": [{"key": "wacc", "reason": "Risk-adjusted discount rate."}],
 				"parameter_reason": "Base-case assumptions.",
 			},
@@ -48,14 +48,14 @@ class AIWorkflowTests(unittest.TestCase):
 				"normalized_payload": {},
 				"normalized_inputs": {"wacc": 0.09},
 				"valuation_model_code": "FCFF",
-				"growth_stage": "Two-Stage",
+				"growth_stage": None,
 			},
 		), patch(
 			"agent.supervisor.run_valuation_calculation",
 			return_value={
 				"selected_model": "FCFF",
 				"model_name": "Free Cash Flow to Firm (FCFF)",
-				"growth_stage": "Two-Stage",
+				"growth_stage": None,
 				"assumptions": [{"key": "wacc", "value": 0.09}],
 				"fair_value_per_share": 120.0,
 				"current_price": 100.0,
@@ -65,7 +65,11 @@ class AIWorkflowTests(unittest.TestCase):
 			result = run_ai_valuation("AAPL", stock)
 
 		self.assertIn("memo_markdown", result)
+		self.assertEqual(result["ticker"], "AAPL")
+		self.assertEqual(result["company_name"], "TestCo")
+		self.assertEqual(result["model_selection"]["selected_model"], "DCF")
 		self.assertEqual(result["valuation_pick"]["selected_model"], "FCFF")
+		self.assertEqual(result["parameter_payload"]["calculation_model"], "FCFF")
 		self.assertIn("Bottom Line", result["explanation_markdown"])
 
 

@@ -35,37 +35,79 @@ def _fallback_explanation(
 ) -> str:
 	"""Deterministic explanation used when the final explainer LLM is unavailable."""
 
-	fact_lines = "\n".join(
-		f"- {fact.get('label')}: {fact.get('value')} ({fact.get('source') or 'source unknown'})"
-		for fact in (parameter_payload.get("fetched_facts") or [])[:6]
-	)
-	assumption_lines = "\n".join(
-		f"- {item.get('key')}: {item.get('value')} ({item.get('reason')})"
+	selected_model = model_selection.get("selected_model") or valuation_result.get("selected_model") or "the selected valuation model"
+	model_reason = model_selection.get("model_reason") or parameter_payload.get("parameter_reason") or "the chosen framework best matches the company's cash-flow profile and capital intensity."
+	fair_value = valuation_result.get("fair_value_per_share", "N/A")
+	current_price = valuation_result.get("current_price", "N/A")
+	margin = valuation_result.get("margin_of_safety", "N/A")
+	assumption_rows = "\n".join(
+		f"| **{item.get('label') or item.get('key')}** | {item.get('value')} | {item.get('reason')} |"
 		for item in (valuation_result.get("assumptions") or [])[:6]
 	)
+	financial_rows = []
+	for fact in (parameter_payload.get("fetched_facts") or [])[:8]:
+		label = fact.get("label") or fact.get("key")
+		value = fact.get("value")
+		source = fact.get("source") or "Workflow anchor"
+		if label in {"Total Debt", "Cash", "Shares Outstanding", "Starting FCFF", "Starting FCFE", "Book Value per Share", "Current Price"}:
+			financial_rows.append(f"| **{label}** | {value} | {source} |")
+	financial_table = "\n".join(financial_rows)
 	return f"""
-## Why This Model Fits
-The workflow chose **{model_selection.get('selected_model') or valuation_result.get('selected_model') or 'a valuation model'}** for {company_name or ticker} because it best matched the business profile identified during broad research. Variant: **{model_selection.get('selected_variant') or valuation_result.get('growth_stage') or 'None'}**.
+# {company_name or ticker} Investment Research Report
 
-## Fetched Facts
-{fact_lines or "- No fetched facts were retained in the final payload."}
+## 1. Investment Thesis & Snapshot
+{company_name or ticker} is being evaluated as a mature operating business with a large installed base, established market position, and valuation driven more by durability and cash generation than by early-stage expansion. The current workflow combines broad company research with a deterministic valuation model to frame whether the market price is justified by long-run fundamentals.
 
-## Estimated Assumptions
-{assumption_lines or "- No assumptions were recorded because the valuation did not complete successfully."}
+The overarching thesis is that investors should focus on the resilience of the business model, the company's ability to convert scale into free cash flow, and whether the current market price already embeds those strengths. The valuation work here uses **{selected_model}**, with the workflow concluding that this framework best fits the economics of the business. Confidence is **{confidence if confidence is not None else 'unknown'}**.
 
-## Fair Value Vs Market Price
-Fair value per share: **{valuation_result.get('fair_value_per_share', 'N/A')}**
-Current market price: **{valuation_result.get('current_price', 'N/A')}**
-Margin of safety: **{valuation_result.get('margin_of_safety', 'N/A')}**
-Confidence: **{confidence if confidence is not None else 'unknown'}**
+## 2. Economic Moat Assessment
+**Moat Rating:** Narrow  
+**Moat Trend:** Stable
 
-## Main Risks
-- Business quality or industry economics may have been misread during the broad research pass.
-- Missing or stale financial data can weaken fetched facts and downstream assumptions.
-- Long-term growth and discount-rate assumptions remain the most sensitive drivers.
+The company appears to benefit from a mix of intangible assets, switching costs, and scale advantages, although the exact moat width still depends on industry structure and execution. This fallback view is intentionally conservative because it is based on the workflow artifacts rather than a fresh analyst rewrite from full source review.
 
-## Sources
-{_format_citations(source_links, source_notes)}
+## 3. Valuation & Fair Value Drivers
+The primary fair value drivers are the explicit forecast assumptions, discount rate, terminal growth, and reinvestment intensity. The workflow chose **{selected_model}** because {model_reason}
+
+| Metric | Value |
+| --- | --- |
+| **Model** | {selected_model} |
+| **Fair Value / Share** | {fair_value} |
+| **Current Price** | {current_price} |
+| **Margin of Safety** | {margin} |
+| **Confidence** | {confidence if confidence is not None else 'unknown'} |
+
+Key assumptions retained by the workflow:
+
+| Assumption | Value | Reason |
+| --- | --- | --- |
+{assumption_rows or "| **No assumptions recorded** | N/A | The valuation did not complete successfully. |"}
+
+On that basis, the shares appear qualitatively aligned with whether the market price sits below, near, or above the modeled fair value.
+
+## 4. Risk & Uncertainty
+**Uncertainty Rating:** Medium
+
+The main risks are that business quality or industry economics may have been misread during the broad research pass, missing or stale financial data may weaken the fetched facts and downstream assumptions, and long-term growth, margins, capex, and discount-rate judgments remain the most sensitive drivers in the valuation.
+
+## 5. Capital Allocation & Management Stewardship
+**Capital Allocation Rating:** Standard
+
+Management quality should be judged by how consistently capital is deployed into reinvestment, shareholder returns, and balance sheet discipline. The current workflow does not independently audit management, so this fallback rating stays neutral rather than overstating conviction.
+
+## 6. Bulls Say / Bears Say
+### Bulls Say
+The bullish case is that the company can sustain stronger cash generation and returns on capital than the market expects, that scale and competitive positioning can support more durable growth and margins, and that steady execution could make the current valuation understate long-run intrinsic value.
+
+### Bears Say
+The bearish case is that competitive pressure, regulation, or weaker demand could compress growth and profitability, reinvestment needs could stay higher than expected and weigh on free cash flow conversion, and the market may already be pricing in assumptions that leave little room for error.
+
+## 7. Financial Health
+The company should be judged on balance sheet flexibility, liquidity, leverage tolerance, and free cash flow generation. The deterministic workflow is designed to anchor that assessment through observed facts and model-ready assumptions, but this fallback summary should still be treated as a directional overview rather than a full credit memo.
+
+| Metric | Value | Source |
+| --- | --- | --- |
+{financial_table or "| **Current Price** | " + str(current_price) + " | Workflow anchor |"}
 """.strip()
 
 

@@ -59,11 +59,13 @@ def render_schedule(result: ValuationResult) -> None:
 		schedule_frame = pd.DataFrame(result.schedule)
 		for column in schedule_frame.columns:
 			if schedule_frame[column].dtype.kind in {"f", "i"} and column != "Year":
-				if "Rate" in column or column == "ROE":
+				if "Rate" in column or "Margin" in column or "Weight" in column or column == "ROE":
 					schedule_frame[column] = schedule_frame[column].map(lambda value: f"{value * 100:.2f}%")
+				elif "Factor" in column or column == "Beta":
+					schedule_frame[column] = schedule_frame[column].map(lambda value: f"{value:,.4f}")
 				else:
 					schedule_frame[column] = schedule_frame[column].map(lambda value: f"${value:,.2f}")
-		st.dataframe(schedule_frame, use_container_width=True, hide_index=True)
+		st.dataframe(schedule_frame, width="stretch", hide_index=True)
 
 
 def render_formula_guide(model_label: str, growth_stage: str | None, result: ValuationResult) -> None:
@@ -73,20 +75,27 @@ def render_formula_guide(model_label: str, growth_stage: str | None, result: Val
 			st.markdown(f"**Growth assumption:** {growth_stage}")
 
 		if model_label.startswith("Free Cash Flow to Equity"):
-			st.latex(r"FCFE_t = FCFE_{t-1} \times (1 + g_t)")
-			st.latex(r"Equity\ Value = \sum_{t=1}^{n}\frac{FCFE_t}{(1 + r)^t} + \frac{FCFE_n(1+g_{term})}{(r-g_{term})(1+r)^n}")
+			st.markdown("Simple FCFE DCF used in Valuation Lab:")
+			st.latex(r"FCFE_t = FCFE_{t-1} \times (1 + g)")
+			st.latex(r"FCFE_1 = Current\ FCFE \times (1 + g)")
+			st.latex(r"PV(FCFE_t) = \frac{FCFE_t}{(1 + r)^t}")
+			st.latex(r"TV = \frac{FCFE_N(1+g_{term})}{r-g_{term}}")
+			st.latex(r"Equity\ Value = \sum_{t=1}^{N}\frac{FCFE_t}{(1 + r)^t} + \frac{TV}{(1+r)^N}")
+			st.latex(r"Fair\ Value\ Per\ Share = \frac{Equity\ Value}{Shares\ Outstanding}")
 		elif model_label.startswith("Free Cash Flow to Firm"):
-			st.latex(r"FCFF_t = FCFF_{t-1} \times (1 + g_t)")
-			st.latex(r"Enterprise\ Value = \sum_{t=1}^{n}\frac{FCFF_t}{(1 + WACC)^t} + \frac{FCFF_n(1+g_{term})}{(WACC-g_{term})(1+WACC)^n}")
+			st.markdown("Simple FCFF DCF used in Valuation Lab:")
+			st.latex(r"FCFF_t = FCFF_{t-1} \times (1 + g)")
+			st.latex(r"FCFF_1 = Current\ FCFF \times (1 + g)")
+			st.latex(r"PV(FCFF_t) = \frac{FCFF_t}{(1 + WACC)^t}")
+			st.latex(r"TV = \frac{FCFF_N(1+g_{term})}{WACC-g_{term}}")
+			st.latex(r"Enterprise\ Value = \sum_{t=1}^{N}\frac{FCFF_t}{(1 + WACC)^t} + \frac{TV}{(1+WACC)^N}")
 			st.latex(r"Equity\ Value = Enterprise\ Value - Debt + Cash")
+			st.latex(r"Fair\ Value\ Per\ Share = \frac{Equity\ Value}{Shares\ Outstanding}")
 		elif model_label.startswith("Dividend Discount Model") and growth_stage == "H-Model":
 			st.latex(r"P_0 = \frac{D_0(1+g_L) + D_0H(g_S-g_L)}{r-g_L}")
 		elif model_label.startswith("Dividend Discount Model"):
 			st.latex(r"D_t = D_{t-1} \times (1 + g_t)")
 			st.latex(r"P_0 = \sum_{t=1}^{n}\frac{D_t}{(1 + r)^t} + \frac{D_n(1+g_{term})}{(r-g_{term})(1+r)^n}")
-		elif model_label.startswith("Adjusted Present Value"):
-			st.latex(r"APV = PV\ of\ Unlevered\ Operations + PV\ of\ Financing\ Side\ Effects")
-			st.latex(r"Equity\ Value = APV - Debt + Cash")
 		elif model_label.startswith("Residual Income"):
 			st.latex(r"EPS_t = ROE \times BV_{t-1}")
 			st.latex(r"BV_t = BV_{t-1} + EPS_t - DPS_t")

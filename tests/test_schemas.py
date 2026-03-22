@@ -9,7 +9,7 @@ class SchemaTests(unittest.TestCase):
 	def test_model_recommendation_schema(self) -> None:
 		model = ModelRecommendation(
 			selected_model="DCF",
-			selected_variant="Two-Stage",
+			selected_variant=None,
 			preferred_calculation_model="FCFF",
 			model_reason="Best fit",
 		)
@@ -18,7 +18,7 @@ class SchemaTests(unittest.TestCase):
 	def test_parameter_payload_schema(self) -> None:
 		payload = ParameterPayload(
 			selected_model="DCF",
-			selected_variant="Two-Stage",
+			selected_variant=None,
 			calculation_model="FCFF",
 			parameter_reason="Okay",
 			fetched_facts=[],

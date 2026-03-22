@@ -3,7 +3,17 @@ from __future__ import annotations
 import math
 from typing import Any, Mapping
 
-import pandas as pd
+try:
+	import pandas as pd
+except ModuleNotFoundError:  # pragma: no cover - depends on local interpreter setup.
+	pd = None  # type: ignore[assignment]
+
+
+class _EmptySeries:
+	index: tuple[str, ...] = ()
+
+	def get(self, _label: str) -> None:
+		return None
 
 
 def safe_number(value: object) -> float:
@@ -37,8 +47,12 @@ def clip_value(value: float, lower: float, upper: float) -> float:
 	return max(lower, min(value, upper))
 
 
-def latest_statement_column(frame: pd.DataFrame | None) -> pd.Series:
-	if frame is None or frame.empty:
+def latest_statement_column(frame: pd.DataFrame | None) -> pd.Series | _EmptySeries:
+	if frame is None:
+		return pd.Series(dtype=float) if pd is not None else _EmptySeries()
+	if pd is None:
+		raise ModuleNotFoundError("pandas is required when statement DataFrames are provided.")
+	if frame.empty:
 		return pd.Series(dtype=float)
 	sorted_columns = frame.columns.sort_values(ascending=False)
 	return frame[sorted_columns[0]].fillna(0)
@@ -285,7 +299,7 @@ def default_valuation_inputs(
 def margin_of_safety(fair_value_per_share: float, current_price: float) -> float | None:
 	if fair_value_per_share <= 0 or current_price <= 0:
 		return None
-	return ((fair_value_per_share - current_price) / fair_value_per_share) * 100
+	return ((fair_value_per_share - current_price) / current_price) * 100
 
 
 def validate_discount_rate(discount_rate: float, terminal_growth: float) -> None:

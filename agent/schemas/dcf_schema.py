@@ -16,8 +16,10 @@ class DCFSchema(FlexibleSchema):
 	starting_fcfe: float | None = None
 	total_debt: float | None = None
 	cash: float | None = None
-	wacc: float | None = None
+	wacc: float | list[float] | None = None
+	terminal_wacc: float | None = None
 	cost_of_equity: float | None = None
+	growth_rate: float | None = None
 	stable_growth: float | None = None
 	high_growth: float | None = None
 	projection_years: float | None = None
