@@ -11,7 +11,6 @@ def _analysis_state_key(ticker: str) -> str:
 	return f"ai_analysis::{ticker.strip().upper()}"
 
 
-st.set_page_config(page_title="AI Analyst", layout="wide")
 inject_global_styles()
 
 render_page_hero(

@@ -114,8 +114,42 @@ class PromptTests(unittest.TestCase):
 		)
 
 		self.assertIn("Chosen model family: DDM", prompt)
+		self.assertIn('DDM + "Drivers": earnings_per_share, payout_ratio, required_return, terminal_growth, shares_outstanding', prompt)
 		self.assertIn('DDM + "Two-Stage": required_return, high_growth, projection_years, terminal_growth', prompt)
-		self.assertIn("DDM does not yet have a driver-version valuation path.", prompt)
+		self.assertIn("DDM supports both stage-based variants and the driver-based `Drivers` path.", prompt)
+
+	def test_parameter_prompt_dispatches_to_ddm_driver_builder(self) -> None:
+		prompt = build_parameter_prompt(
+			ticker="PG",
+			selected_model="DDM",
+			selected_variant="Drivers",
+			candidate_facts=[{"label": "Dividend Per Share", "value": 4.03, "source": "Yahoo Finance"}],
+			calculation_model="DDM",
+			analysis_focus="Stay conservative on payout expansion.",
+		)
+
+		self.assertIn("You are the DDM parameter estimation specialist for AutoGraham.", prompt)
+		self.assertIn("`calculate_ddm_from_drivers(...)` in `ddm.py`.", prompt)
+		self.assertIn('"earnings_per_share": []', prompt)
+		self.assertIn('"payout_ratio": []', prompt)
+		self.assertIn("Additional analysis focus: Stay conservative on payout expansion.", prompt)
+
+	def test_parameter_prompt_dispatches_to_rim_driver_builder(self) -> None:
+		prompt = build_parameter_prompt(
+			ticker="JPM",
+			selected_model="RIM",
+			selected_variant=None,
+			candidate_facts=[{"label": "Book Value Per Share", "value": 110.0, "source": "Yahoo Finance"}],
+			calculation_model="RIM",
+			analysis_focus="Stay conservative on excess-return fade.",
+		)
+
+		self.assertIn("You are the RIM parameter estimation specialist for AutoGraham.", prompt)
+		self.assertIn("Do NOT evaluate whether RIM is appropriate.", prompt)
+		self.assertIn("`calculate_rim_from_drivers(...)` in `rim.py`.", prompt)
+		self.assertIn('"return_on_equity": []', prompt)
+		self.assertIn('"payout_ratio": []', prompt)
+		self.assertIn("Additional analysis focus: Stay conservative on excess-return fade.", prompt)
 
 
 if __name__ == "__main__":

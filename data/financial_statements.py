@@ -8,10 +8,121 @@ import plotly.graph_objects as go
 from valuation.common import safe_number
 
 
-def format_period_label(period_column) -> str:
+def format_period_label(period_column, period_type: str = "Quarterly") -> str:
 	if hasattr(period_column, "strftime"):
-		return f"Quarter Ended: {period_column.strftime('%b %d, %Y')}"
+		label_prefix = "Year Ended" if period_type == "Annual" else "Quarter Ended"
+		return f"{label_prefix}: {period_column.strftime('%b %d, %Y')}"
 	return str(period_column)
+
+
+def get_display_period_columns(
+	income_stmt: pd.DataFrame,
+	*,
+	period_type: str = "Quarterly",
+	limit: int | None = None,
+) -> list:
+	if income_stmt is None or len(getattr(income_stmt, "columns", [])) == 0:
+		return []
+
+	ordered_columns = list(sorted(income_stmt.columns, reverse=True))
+	if period_type == "Annual":
+		december_year_end_columns = [
+			column for column in ordered_columns if not hasattr(column, "month") or (column.month == 12 and column.day == 31)
+		]
+		if december_year_end_columns:
+			ordered_columns = december_year_end_columns
+
+	if limit is not None:
+		return ordered_columns[:limit]
+	return ordered_columns
+
+
+def build_calendar_year_income_statement(quarterly_income_stmt: pd.DataFrame, *, limit: int | None = None) -> pd.DataFrame:
+	if quarterly_income_stmt is None or len(getattr(quarterly_income_stmt, "columns", [])) == 0:
+		empty_frame = pd.DataFrame()
+		empty_frame.attrs.update(getattr(quarterly_income_stmt, "attrs", {}))
+		return empty_frame
+
+	ordered = quarterly_income_stmt.copy()
+	ordered = ordered[sorted(ordered.columns, reverse=True)]
+	period_columns = list(ordered.columns)
+	yearly_series: dict[pd.Timestamp, pd.Series] = {}
+
+	for current_index, period_column in enumerate(period_columns):
+		if not hasattr(period_column, "month") or period_column.month != 12 or current_index + 3 >= len(period_columns):
+			continue
+
+		trailing_columns = period_columns[current_index : current_index + 4]
+		year_end_label = pd.Timestamp(year=period_column.year, month=12, day=31)
+		if year_end_label in yearly_series:
+			continue
+
+		yearly_series[year_end_label] = ordered.loc[:, trailing_columns].fillna(0).sum(axis=1)
+
+	if not yearly_series:
+		empty_frame = pd.DataFrame()
+		empty_frame.attrs.update(getattr(quarterly_income_stmt, "attrs", {}))
+		return empty_frame
+
+	yearly_frame = pd.DataFrame(yearly_series)
+	yearly_frame = yearly_frame[sorted(yearly_frame.columns, reverse=True)]
+	if limit is not None:
+		yearly_frame = yearly_frame.iloc[:, :limit]
+	yearly_frame.attrs.update(getattr(quarterly_income_stmt, "attrs", {}))
+	return yearly_frame
+
+
+def _series_value(period_series: pd.Series, aliases: list[str], default: float | None = None) -> float | None:
+	for alias in aliases:
+		if alias in period_series.index:
+			value = period_series.get(alias)
+			if pd.notna(value):
+				return safe_number(value)
+	return default
+
+
+def extract_quarter_metrics(income_stmt: pd.DataFrame, period_column) -> dict[str, object]:
+	if income_stmt is None or income_stmt.empty:
+		raise ValueError("Quarterly income statement data is unavailable.")
+	if period_column not in income_stmt.columns:
+		raise ValueError("Selected quarter is unavailable.")
+
+	period_series = income_stmt[period_column].fillna(0)
+	revenue = safe_number(_series_value(period_series, ["Total Revenue", "Revenue"], default=0.0))
+	cost_of_revenue = abs(safe_number(_series_value(period_series, ["Cost Of Revenue", "Cost of Revenue"], default=0.0)))
+	gross_profit_raw = _series_value(period_series, ["Gross Profit"])
+	gross_profit = safe_number(gross_profit_raw if gross_profit_raw is not None else revenue - cost_of_revenue)
+
+	operating_income_raw = _series_value(period_series, ["Operating Income", "EBIT"])
+	operating_expenses_raw = _series_value(period_series, ["Operating Expense", "Operating Expenses"])
+	if operating_income_raw is None and operating_expenses_raw is None:
+		operating_income = 0.0
+		operating_expenses = 0.0
+	else:
+		if operating_income_raw is None:
+			operating_expenses = abs(safe_number(operating_expenses_raw))
+			operating_income = gross_profit - operating_expenses
+		elif operating_expenses_raw is None:
+			operating_income = safe_number(operating_income_raw)
+			operating_expenses = abs(gross_profit - operating_income)
+		else:
+			operating_income = safe_number(operating_income_raw)
+			operating_expenses = abs(safe_number(operating_expenses_raw))
+
+	net_profit_raw = _series_value(period_series, ["Net Income", "Net Income Common Stockholders"])
+	net_profit = safe_number(net_profit_raw if net_profit_raw is not None else operating_income)
+
+	return {
+		"period": format_period_label(period_column),
+		"revenue": revenue,
+		"gross_profit": gross_profit,
+		"operating_income": operating_income,
+		"operating_expenses": operating_expenses,
+		"net_profit": net_profit,
+		"gross_margin": (gross_profit / revenue) if revenue else None,
+		"operating_margin": (operating_income / revenue) if revenue else None,
+		"net_margin": (net_profit / revenue) if revenue else None,
+	}
 
 
 def extract_latest_quarter_metrics(income_stmt: pd.DataFrame) -> dict[str, object]:
@@ -20,23 +131,22 @@ def extract_latest_quarter_metrics(income_stmt: pd.DataFrame) -> dict[str, objec
 
 	ordered = income_stmt[income_stmt.columns.sort_values(ascending=False)]
 	latest_period = ordered.columns[0]
-	period_series = ordered[latest_period].fillna(0)
+	return extract_quarter_metrics(ordered, latest_period)
 
-	revenue = safe_number(period_series.get("Total Revenue", period_series.get("Revenue", 0)))
-	cost_of_revenue = abs(safe_number(period_series.get("Cost Of Revenue", 0)))
-	gross_profit = safe_number(period_series.get("Gross Profit", revenue - cost_of_revenue))
-	operating_expenses = abs(safe_number(period_series.get("Operating Expense", period_series.get("Operating Expenses", 0))))
-	net_profit = safe_number(period_series.get("Net Income", period_series.get("Net Income Common Stockholders", 0)))
 
-	return {
-		"period": format_period_label(latest_period),
-		"revenue": revenue,
-		"gross_profit": gross_profit,
-		"operating_expenses": operating_expenses,
-		"net_profit": net_profit,
-		"gross_margin": (gross_profit / revenue) if revenue else None,
-		"net_margin": (net_profit / revenue) if revenue else None,
-	}
+def get_period_change_metrics(income_stmt: pd.DataFrame, period_column, metric_name: str) -> dict[str, Optional[float]]:
+	if income_stmt is None or income_stmt.empty:
+		raise ValueError("Quarterly income statement data is unavailable.")
+
+	ordered = income_stmt.copy()
+	ordered = ordered[sorted(ordered.columns, reverse=True)]
+	period_columns = list(ordered.columns)
+	if period_column not in period_columns:
+		raise ValueError("Selected period is unavailable.")
+
+	metrics_by_column = {column: _extract_period_metrics(ordered, column) for column in period_columns}
+	current_index = period_columns.index(period_column)
+	return _build_change_map(metrics_by_column, period_columns, current_index, metric_name)
 
 
 def _metric_is_expense(metric_name: str) -> bool:
@@ -46,13 +156,26 @@ def _metric_is_expense(metric_name: str) -> bool:
 def _extract_period_metrics(income_stmt: pd.DataFrame, period_column) -> dict[str, float]:
 	period_series = income_stmt[period_column].fillna(0)
 
-	revenue = safe_number(period_series.get("Total Revenue", 0))
-	cost_of_revenue = -abs(safe_number(period_series.get("Cost Of Revenue", 0)))
-	operating_expenses = -abs(safe_number(period_series.get("Operating Expense", 0)))
+	revenue = safe_number(_series_value(period_series, ["Total Revenue", "Revenue"], default=0.0))
+	cost_of_revenue = -abs(safe_number(_series_value(period_series, ["Cost Of Revenue", "Cost of Revenue"], default=0.0)))
+	operating_expenses_raw = _series_value(period_series, ["Operating Expense", "Operating Expenses"])
 	taxes = -abs(safe_number(period_series.get("Tax Provision", 0)))
 	net_profit = safe_number(period_series.get("Net Income", period_series.get("Net Income Common Stockholders", 0)))
-	gross_profit = revenue + cost_of_revenue
-	operating_profit = gross_profit + operating_expenses
+	gross_profit_raw = _series_value(period_series, ["Gross Profit"])
+	gross_profit = safe_number(gross_profit_raw if gross_profit_raw is not None else revenue + cost_of_revenue)
+	operating_income_raw = _series_value(period_series, ["Operating Income", "EBIT"])
+	if operating_income_raw is None and operating_expenses_raw is None:
+		operating_expenses = 0.0
+		operating_profit = gross_profit
+	elif operating_income_raw is None:
+		operating_expenses = -abs(safe_number(operating_expenses_raw))
+		operating_profit = gross_profit + operating_expenses
+	elif operating_expenses_raw is None:
+		operating_profit = safe_number(operating_income_raw)
+		operating_expenses = operating_profit - gross_profit
+	else:
+		operating_expenses = -abs(safe_number(operating_expenses_raw))
+		operating_profit = safe_number(operating_income_raw)
 	other_income_expense_net = net_profit - operating_profit - taxes
 
 	return {
@@ -132,7 +255,14 @@ def _format_change_badge(metric_name: str, pct_change: Optional[float]) -> str:
 	return ""
 
 
-def _format_chart_value(metric_name: str, value: float, value_suffix: str, changes: dict[str, Optional[float]]) -> str:
+def _format_chart_value(
+	metric_name: str,
+	value: float,
+	value_suffix: str,
+	changes: dict[str, Optional[float]],
+	*,
+	period_type: str = "Quarterly",
+) -> str:
 	rounded_value = round(value, 2)
 	if rounded_value == 0:
 		return ""
@@ -145,16 +275,22 @@ def _format_chart_value(metric_name: str, value: float, value_suffix: str, chang
 	yoy_badge = _format_change_badge(metric_name, changes["yoy"])
 	if yoy_badge:
 		change_lines.append(f"YoY: {yoy_badge}")
-	qoq_badge = _format_change_badge(metric_name, changes["qoq"])
-	if qoq_badge:
-		change_lines.append(f"QoQ: {qoq_badge}")
+	if period_type == "Quarterly":
+		qoq_badge = _format_change_badge(metric_name, changes["qoq"])
+		if qoq_badge:
+			change_lines.append(f"QoQ: {qoq_badge}")
 
 	if not change_lines:
 		return amount_text
 	return amount_text + "<br>" + "<br>".join(change_lines)
 
 
-def build_income_waterfall_figure(income_stmt: pd.DataFrame, selected_column=None) -> tuple[go.Figure, list[str]]:
+def build_income_waterfall_figure(
+	income_stmt: pd.DataFrame,
+	selected_column=None,
+	*,
+	period_type: str = "Quarterly",
+) -> tuple[go.Figure, list[str]]:
 	if income_stmt is None or income_stmt.empty:
 		raise ValueError("Quarterly income statement data is unavailable for this ticker.")
 
@@ -177,7 +313,7 @@ def build_income_waterfall_figure(income_stmt: pd.DataFrame, selected_column=Non
 
 	revenue_raw = safe_number(metrics["revenue"])
 	if revenue_raw <= 0:
-		raise ValueError(f"{format_period_label(selected_column)} revenue is not positive, so a waterfall cannot be built.")
+		raise ValueError(f"{format_period_label(selected_column, period_type=period_type)} revenue is not positive, so a waterfall cannot be built.")
 
 	raw_metrics = [safe_number(metrics[name]) for name in metrics]
 	max_abs_value = max(abs(value) for value in raw_metrics)
@@ -206,14 +342,14 @@ def build_income_waterfall_figure(income_stmt: pd.DataFrame, selected_column=Non
 		0.0,
 	]
 	custom_text = [
-		_format_chart_value("revenue", scaled_metrics["revenue"], value_suffix, changes["revenue"]),
-		_format_chart_value("cost_of_revenue", scaled_metrics["cost_of_revenue"], value_suffix, changes["cost_of_revenue"]),
-		_format_chart_value("gross_profit", scaled_metrics["gross_profit"], value_suffix, changes["gross_profit"]),
-		_format_chart_value("operating_expenses", scaled_metrics["operating_expenses"], value_suffix, changes["operating_expenses"]),
-		_format_chart_value("operating_profit", scaled_metrics["operating_profit"], value_suffix, changes["operating_profit"]),
-		_format_chart_value("other_income_expense_net", scaled_metrics["other_income_expense_net"], value_suffix, changes["other_income_expense_net"]),
-		_format_chart_value("taxes", scaled_metrics["taxes"], value_suffix, changes["taxes"]),
-		_format_chart_value("net_profit", scaled_metrics["net_profit"], value_suffix, changes["net_profit"]),
+		_format_chart_value("revenue", scaled_metrics["revenue"], value_suffix, changes["revenue"], period_type=period_type),
+		_format_chart_value("cost_of_revenue", scaled_metrics["cost_of_revenue"], value_suffix, changes["cost_of_revenue"], period_type=period_type),
+		_format_chart_value("gross_profit", scaled_metrics["gross_profit"], value_suffix, changes["gross_profit"], period_type=period_type),
+		_format_chart_value("operating_expenses", scaled_metrics["operating_expenses"], value_suffix, changes["operating_expenses"], period_type=period_type),
+		_format_chart_value("operating_profit", scaled_metrics["operating_profit"], value_suffix, changes["operating_profit"], period_type=period_type),
+		_format_chart_value("other_income_expense_net", scaled_metrics["other_income_expense_net"], value_suffix, changes["other_income_expense_net"], period_type=period_type),
+		_format_chart_value("taxes", scaled_metrics["taxes"], value_suffix, changes["taxes"], period_type=period_type),
+		_format_chart_value("net_profit", scaled_metrics["net_profit"], value_suffix, changes["net_profit"], period_type=period_type),
 	]
 	min_y_value = min(y_values)
 	max_y_value = max(y_values)
@@ -223,6 +359,7 @@ def build_income_waterfall_figure(income_stmt: pd.DataFrame, selected_column=Non
 		lower_bound, upper_bound = -1.0, 1.0
 
 	ticker = ordered.attrs.get("ticker", "Ticker")
+	period_descriptor = "Annual" if period_type == "Annual" else "Quarterly"
 	figure = go.Figure(
 		go.Waterfall(
 			name=ticker,
@@ -244,7 +381,7 @@ def build_income_waterfall_figure(income_stmt: pd.DataFrame, selected_column=Non
 		)
 	)
 	figure.update_layout(
-		title={"text": f"<b>{ticker}</b> Quarterly Revenue to Net Profit Bridge", "x": 0.02, "xanchor": "left", "y": 0.94},
+		title={"text": f"<b>{ticker}</b> {period_descriptor} Revenue to Net Profit Bridge", "x": 0.02, "xanchor": "left", "y": 0.94},
 		title_font={"size": 24, "color": "#0f172a", "family": "Avenir Next, Helvetica Neue, sans-serif"},
 		yaxis_title=f"USD ({'Billions' if value_suffix == 'B' else 'Millions'})",
 		showlegend=False,
@@ -262,7 +399,7 @@ def build_income_waterfall_figure(income_stmt: pd.DataFrame, selected_column=Non
 	)
 	figure.update_yaxes(range=[lower_bound, upper_bound])
 	figure.update_traces(cliponaxis=False)
-	return figure, [format_period_label(column) for column in period_columns]
+	return figure, [format_period_label(column, period_type=period_type) for column in period_columns]
 
 
 def _format_legacy_period_label(period: object, period_type: str) -> str:

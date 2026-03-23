@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from valuation.rim import calculate_rim
+from valuation.rim import calculate_rim, calculate_rim_from_drivers
 
 
 class RIMTests(unittest.TestCase):
@@ -44,6 +44,23 @@ class RIMTests(unittest.TestCase):
 
 		self.assertAlmostEqual(result.fair_value_per_share, expected_fair_value, places=6)
 		self.assertAlmostEqual(result.schedule[-1]["Ending Book Value"], book_value_year_1 + (book_value_year_1 * 0.12) - (book_value_year_1 * 0.12 * 0.3), places=6)
+
+	def test_rim_driver_path_supports_yearly_roe_and_payout_inputs(self) -> None:
+		result = calculate_rim_from_drivers(
+			book_value_per_share=20.0,
+			shares_outstanding=100.0,
+			return_on_equity=[0.14, 0.13, 0.12],
+			cost_of_equity=0.09,
+			payout_ratio=[0.25, 0.30, 0.35],
+			terminal_growth=0.03,
+			current_price=18.0,
+		)
+
+		self.assertEqual(result.model_label, "RIM")
+		self.assertEqual(result.stage_label, "Driver RIM")
+		self.assertEqual(len(result.schedule), 3)
+		self.assertIn("Payout Ratio", result.schedule[0])
+		self.assertGreater(result.fair_value_per_share, 0)
 
 
 if __name__ == "__main__":

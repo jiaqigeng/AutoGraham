@@ -39,6 +39,23 @@ DCF_DRIVER_NOTE_MAP: dict[str, dict[str, str]] = {
 	},
 }
 
+RIM_DRIVER_NOTE_MAP: dict[str, str] = {
+	"book_value_per_share": "book_value_per_share",
+	"return_on_equity": "return_on_equity",
+	"payout_ratio": "payout_ratio",
+	"cost_of_equity": "cost_of_equity",
+	"terminal_growth": "terminal_growth",
+	"shares_outstanding": "shares_outstanding",
+}
+
+DDM_DRIVER_NOTE_MAP: dict[str, str] = {
+	"earnings_per_share": "earnings_per_share",
+	"payout_ratio": "payout_ratio",
+	"required_return": "required_return",
+	"terminal_growth": "terminal_growth",
+	"shares_outstanding": "shares_outstanding",
+}
+
 
 def _resolve_calculation_model(model_selection: Mapping[str, Any], defaults: Mapping[str, float]) -> str:
 	"""Choose the deterministic calculator code for the selected family."""
@@ -92,6 +109,14 @@ def _coerce_numeric_value(value: Any) -> float | list[float]:
 	if isinstance(value, list):
 		return [float(item) for item in value if item not in (None, "")]
 	return float(value)
+
+
+def _driver_path_label(selected_model: str, calculation_model: str) -> str:
+	"""Build a user-facing label for driver-based valuation paths."""
+
+	if selected_model == "DCF":
+		return f"{calculation_model} DCF"
+	return selected_model
 
 
 def _translate_dcf_driver_payload(
@@ -176,6 +201,80 @@ def _translate_dcf_driver_payload(
 	return assumptions, assumption_reasons, parameter_reason, model_warnings
 
 
+def _translate_rim_driver_payload(
+	llm_payload: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]], str, list[str]]:
+	"""Normalize yearly RIM forecast JSON into the internal parameter payload shape."""
+
+	inputs = llm_payload.get("inputs")
+	if not isinstance(inputs, Mapping):
+		raise ValueError("RIM driver payload must contain an inputs object.")
+	assumption_notes = llm_payload.get("assumption_notes")
+	assumption_notes_lookup = assumption_notes if isinstance(assumption_notes, Mapping) else {}
+
+	assumptions: dict[str, Any] = {}
+	for key in ("book_value_per_share", "return_on_equity", "payout_ratio", "cost_of_equity", "terminal_growth", "shares_outstanding"):
+		value = inputs.get(key)
+		if value in (None, "", []):
+			continue
+		assumptions[key] = _coerce_numeric_value(value)
+
+	assumption_reasons: list[dict[str, Any]] = []
+	for key, note_key in RIM_DRIVER_NOTE_MAP.items():
+		if key not in assumptions:
+			continue
+		note = str(assumption_notes_lookup.get(key) or assumption_notes_lookup.get(note_key) or "").strip()
+		if not note:
+			note = "Estimated for year-by-year RIM input generation."
+		assumption_reasons.append({"key": key, "reason": note})
+
+	forecast_horizon = llm_payload.get("projection_years", llm_payload.get("forecast_horizon"))
+	forecast_reason = str(llm_payload.get("projection_rationale") or assumption_notes_lookup.get("projection_years") or "").strip()
+	model_warnings = [str(item).strip() for item in list(llm_payload.get("model_warnings") or llm_payload.get("research_warnings") or []) if str(item).strip()]
+	horizon_text = f"{int(forecast_horizon)}-year" if isinstance(forecast_horizon, (int, float)) else "yearly-forecast"
+	parameter_reason = f"RIM {horizon_text} forecast."
+	if forecast_reason:
+		parameter_reason = f"{parameter_reason} {forecast_reason}"
+	return assumptions, assumption_reasons, parameter_reason, model_warnings
+
+
+def _translate_ddm_driver_payload(
+	llm_payload: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]], str, list[str]]:
+	"""Normalize yearly DDM forecast JSON into the internal parameter payload shape."""
+
+	inputs = llm_payload.get("inputs")
+	if not isinstance(inputs, Mapping):
+		raise ValueError("DDM driver payload must contain an inputs object.")
+	assumption_notes = llm_payload.get("assumption_notes")
+	assumption_notes_lookup = assumption_notes if isinstance(assumption_notes, Mapping) else {}
+
+	assumptions: dict[str, Any] = {}
+	for key in ("earnings_per_share", "payout_ratio", "required_return", "terminal_growth", "shares_outstanding"):
+		value = inputs.get(key)
+		if value in (None, "", []):
+			continue
+		assumptions[key] = _coerce_numeric_value(value)
+
+	assumption_reasons: list[dict[str, Any]] = []
+	for key, note_key in DDM_DRIVER_NOTE_MAP.items():
+		if key not in assumptions:
+			continue
+		note = str(assumption_notes_lookup.get(key) or assumption_notes_lookup.get(note_key) or "").strip()
+		if not note:
+			note = "Estimated for year-by-year DDM input generation."
+		assumption_reasons.append({"key": key, "reason": note})
+
+	forecast_horizon = llm_payload.get("projection_years", llm_payload.get("forecast_horizon"))
+	forecast_reason = str(llm_payload.get("projection_rationale") or assumption_notes_lookup.get("projection_years") or "").strip()
+	model_warnings = [str(item).strip() for item in list(llm_payload.get("model_warnings") or llm_payload.get("research_warnings") or []) if str(item).strip()]
+	horizon_text = f"{int(forecast_horizon)}-year" if isinstance(forecast_horizon, (int, float)) else "yearly-forecast"
+	parameter_reason = f"DDM {horizon_text} forecast."
+	if forecast_reason:
+		parameter_reason = f"{parameter_reason} {forecast_reason}"
+	return assumptions, assumption_reasons, parameter_reason, model_warnings
+
+
 def estimate_parameters(
 	ticker: str,
 	stock_info: Mapping[str, Any] | Any,
@@ -199,9 +298,13 @@ def estimate_parameters(
 	selected_model = str(model_selection.get("selected_model") or "").upper()
 	selected_variant = model_selection.get("selected_variant")
 	calculation_model = _resolve_calculation_model(model_selection, defaults)
-	use_driver_dcf = selected_model == "DCF" and calculation_model in {"FCFF", "FCFE"}
+	use_driver_payload = (
+		(selected_model == "DCF" and calculation_model in {"FCFF", "FCFE"})
+		or selected_model == "RIM"
+		or (selected_model == "DDM" and selected_variant == "Drivers")
+	)
 	fallback = default_parameter_fallback(selected_model, selected_variant, defaults, calculation_model=calculation_model)
-	if use_driver_dcf:
+	if use_driver_payload:
 		assumptions: dict[str, Any] = {}
 		assumption_reasons: list[dict[str, Any]] = []
 		fallback["weak_or_uncertain_inputs"] = []
@@ -225,24 +328,31 @@ def estimate_parameters(
 	if llm_text:
 		try:
 			llm_payload = extract_json_object(llm_text)
-			if use_driver_dcf and isinstance(llm_payload.get("inputs"), Mapping):
-				driver_assumptions, driver_reasons, driver_parameter_reason, model_warnings = _translate_dcf_driver_payload(
-					llm_payload,
-					calculation_model=calculation_model,
-				)
+			if use_driver_payload and isinstance(llm_payload.get("inputs"), Mapping):
+				if selected_model == "RIM":
+					driver_assumptions, driver_reasons, driver_parameter_reason, model_warnings = _translate_rim_driver_payload(llm_payload)
+				elif selected_model == "DDM":
+					driver_assumptions, driver_reasons, driver_parameter_reason, model_warnings = _translate_ddm_driver_payload(llm_payload)
+				else:
+					driver_assumptions, driver_reasons, driver_parameter_reason, model_warnings = _translate_dcf_driver_payload(
+						llm_payload,
+						calculation_model=calculation_model,
+					)
 				assumptions.update(driver_assumptions)
 				assumption_reasons = _merge_assumption_reasons(assumption_reasons, driver_reasons)
 				parameter_reason = driver_parameter_reason or str(fallback.get("parameter_reason") or "").strip()
 				if model_warnings:
 					existing_warnings = [str(item).strip() for item in list(fallback.get("weak_or_uncertain_inputs") or []) if str(item).strip()]
 					fallback["weak_or_uncertain_inputs"] = existing_warnings + model_warnings
-			elif use_driver_dcf:
+			elif use_driver_payload:
+				path_label = _driver_path_label(selected_model, calculation_model)
+				payload_label = "yearly-forecast `inputs` object"
 				parameter_reason = (
-					f"{calculation_model} DCF inputs unresolved. "
-					"No simple DCF fallback was applied because this path requires structured yearly forecasts."
+					f"{path_label} inputs unresolved. "
+					f"No simple {selected_model} fallback was applied because this path requires structured yearly forecasts."
 				)
 				fallback["weak_or_uncertain_inputs"] = [
-					"The DCF parameter payload did not include the required yearly-forecast `inputs` object."
+					f"The {selected_model} parameter payload did not include the required {payload_label}."
 				]
 			else:
 				for key, value in dict(llm_payload.get("assumptions") or {}).items():
@@ -254,28 +364,30 @@ def estimate_parameters(
 					list(llm_payload.get("assumption_reasons") or []),
 				)
 				parameter_reason = str(llm_payload.get("parameter_reason") or fallback.get("parameter_reason") or "").strip()
-			confidence = 0.35 if use_driver_dcf and not assumptions else 0.7
+			confidence = 0.35 if use_driver_payload and not assumptions else 0.7
 		except Exception:
-			if use_driver_dcf:
+			if use_driver_payload:
+				path_label = _driver_path_label(selected_model, calculation_model)
 				parameter_reason = (
-					f"{calculation_model} DCF inputs unresolved. "
-					"No simple DCF fallback was applied because the yearly-forecast payload could not be parsed."
+					f"{path_label} inputs unresolved. "
+					f"No simple {selected_model} fallback was applied because the yearly-forecast payload could not be parsed."
 				)
 				fallback["weak_or_uncertain_inputs"] = [
-					"The DCF yearly-forecast payload could not be parsed into validated inputs."
+					f"The {selected_model} yearly-forecast payload could not be parsed into validated inputs."
 				]
 				confidence = 0.2
 			else:
 				parameter_reason = str(fallback.get("parameter_reason") or "").strip()
 				confidence = 0.6
 	else:
-		if use_driver_dcf:
+		if use_driver_payload:
+			path_label = _driver_path_label(selected_model, calculation_model)
 			parameter_reason = (
-				f"{calculation_model} DCF inputs unresolved. "
-				"No simple DCF fallback was applied because no yearly-forecast payload was returned."
+				f"{path_label} inputs unresolved. "
+				f"No simple {selected_model} fallback was applied because no yearly-forecast payload was returned."
 			)
 			fallback["weak_or_uncertain_inputs"] = [
-				"No DCF yearly-forecast payload was returned by the parameter estimator."
+				f"No {selected_model} yearly-forecast payload was returned by the parameter estimator."
 			]
 			confidence = 0.2
 		else:

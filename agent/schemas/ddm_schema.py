@@ -10,6 +10,8 @@ class DDMSchema(FlexibleSchema):
 	current_price: float | None = None
 	shares_outstanding: float | None = None
 	current_dividend_per_share: float | None = None
+	earnings_per_share: list[float] | None = None
+	payout_ratio: list[float] | None = None
 	required_return: float | None = None
 	high_growth: float | None = None
 	stable_growth: float | None = None

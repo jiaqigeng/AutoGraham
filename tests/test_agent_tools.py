@@ -105,6 +105,110 @@ class AgentToolsTests(unittest.TestCase):
 		self.assertGreater(result["fair_value_per_share"], 0)
 		self.assertTrue(any(row["key"] == "revenue" for row in result["assumptions"]))
 
+	def test_validate_parameter_payload_detects_ddm_driver_inputs(self) -> None:
+		payload = {
+			"selected_model": "DDM",
+			"selected_variant": "Drivers",
+			"calculation_model": "DDM",
+			"fetched_facts": [
+				{"key": "current_price", "label": "Current Price", "value": 40.0, "numeric_value": 40.0},
+			],
+			"assumptions": {
+				"earnings_per_share": [4.0, 4.2, 4.4, 4.5],
+				"payout_ratio": [0.45, 0.46, 0.47, 0.48],
+				"required_return": 0.09,
+				"terminal_growth": 0.03,
+				"shares_outstanding": 100,
+			},
+			"assumption_reasons": [],
+		}
+
+		validation = validate_parameter_payload(payload)
+
+		self.assertTrue(validation["is_valid"])
+		self.assertEqual(validation["valuation_model_code"], "DDM")
+		self.assertEqual(validation["growth_stage"], "Drivers")
+		self.assertIsInstance(validation["normalized_inputs"]["earnings_per_share"], list)
+
+	def test_run_valuation_calculation_supports_ddm_driver_inputs(self) -> None:
+		payload = {
+			"selected_model": "DDM",
+			"selected_variant": "Drivers",
+			"calculation_model": "DDM",
+			"parameter_reason": "Driver-based DDM forecast.",
+			"fetched_facts": [
+				{"key": "current_price", "label": "Current Price", "value": 40.0, "numeric_value": 40.0},
+			],
+			"assumptions": {
+				"earnings_per_share": [4.0, 4.2, 4.4, 4.5],
+				"payout_ratio": [0.45, 0.46, 0.47, 0.48],
+				"required_return": 0.09,
+				"terminal_growth": 0.03,
+				"shares_outstanding": 100,
+			},
+			"assumption_reasons": [],
+		}
+
+		result = run_valuation_calculation(payload)
+
+		self.assertEqual(result["selected_model"], "DDM")
+		self.assertEqual(result["growth_stage"], "Drivers")
+		self.assertGreater(result["fair_value_per_share"], 0)
+		self.assertTrue(any(row["key"] == "earnings_per_share" for row in result["assumptions"]))
+
+	def test_validate_parameter_payload_detects_rim_driver_inputs(self) -> None:
+		payload = {
+			"selected_model": "RIM",
+			"selected_variant": None,
+			"calculation_model": "RIM",
+			"fetched_facts": [
+				{"key": "current_price", "label": "Current Price", "value": 40.0, "numeric_value": 40.0},
+			],
+			"assumptions": {
+				"book_value_per_share": 25.0,
+				"return_on_equity": [0.14, 0.135, 0.13, 0.125],
+				"payout_ratio": [0.35, 0.38, 0.40, 0.42],
+				"cost_of_equity": 0.10,
+				"terminal_growth": 0.03,
+				"shares_outstanding": 100,
+			},
+			"assumption_reasons": [],
+		}
+
+		validation = validate_parameter_payload(payload)
+
+		self.assertTrue(validation["is_valid"])
+		self.assertEqual(validation["valuation_model_code"], "RIM")
+		self.assertEqual(validation["growth_stage"], "Drivers")
+		self.assertIsInstance(validation["normalized_inputs"]["return_on_equity"], list)
+
+	def test_run_valuation_calculation_supports_rim_driver_inputs(self) -> None:
+		payload = {
+			"selected_model": "RIM",
+			"selected_variant": None,
+			"calculation_model": "RIM",
+			"parameter_reason": "Driver-based RIM forecast.",
+			"fetched_facts": [
+				{"key": "current_price", "label": "Current Price", "value": 40.0, "numeric_value": 40.0},
+			],
+			"assumptions": {
+				"book_value_per_share": 25.0,
+				"return_on_equity": [0.14, 0.135, 0.13, 0.125],
+				"payout_ratio": [0.35, 0.38, 0.40, 0.42],
+				"cost_of_equity": 0.10,
+				"terminal_growth": 0.03,
+				"shares_outstanding": 100,
+			},
+			"assumption_reasons": [],
+		}
+
+		result = run_valuation_calculation(payload)
+
+		self.assertEqual(result["selected_model"], "RIM")
+		self.assertEqual(result["growth_stage"], "Drivers")
+		self.assertGreater(result["fair_value_per_share"], 0)
+		self.assertTrue(any(row["key"] == "return_on_equity" for row in result["assumptions"]))
+
 
 if __name__ == "__main__":
 	unittest.main()

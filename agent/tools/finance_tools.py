@@ -118,9 +118,11 @@ def get_income_statement(ticker: str) -> str:
 		Latest Quarterly Income Statement for {clean_ticker} ({metrics['period']}):
 		- Revenue: {format_compact_currency(metrics['revenue'])}
 		- Gross Profit: {format_compact_currency(metrics['gross_profit'])}
+		- Operating Income: {format_compact_currency(metrics['operating_income'])}
 		- Operating Expenses: {format_compact_currency(metrics['operating_expenses'])}
 		- Net Profit: {format_compact_currency(metrics['net_profit'])}
 		- Gross Margin: {f"{metrics['gross_margin']:.2%}" if metrics['gross_margin'] is not None else 'N/A'}
+		- Operating Margin: {f"{metrics['operating_margin']:.2%}" if metrics['operating_margin'] is not None else 'N/A'}
 		- Net Margin: {f"{metrics['net_margin']:.2%}" if metrics['net_margin'] is not None else 'N/A'}
 		"""
 	).strip()

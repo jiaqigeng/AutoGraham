@@ -11,12 +11,13 @@ from valuation.dcf import (
 	calculate_fcff_dcf_simple,
 )
 from valuation.ddm import (
+	calculate_ddm_from_drivers,
 	calculate_ddm_h_model,
 	calculate_ddm_single_stage,
 	calculate_ddm_three_stage,
 	calculate_ddm_two_stage,
 )
-from valuation.rim import calculate_rim
+from valuation.rim import calculate_rim_from_drivers, calculate_rim_simple
 from valuation.types import ValuationResult
 
 
@@ -176,6 +177,48 @@ def _calculate_fcfe_driver_registry(
 	)
 
 
+def _calculate_rim_simple_registry(
+	book_value_per_share: float,
+	shares_outstanding: float,
+	return_on_equity: float,
+	cost_of_equity: float,
+	payout_ratio: float,
+	projection_years: int,
+	terminal_growth: float,
+	current_price: float,
+) -> ValuationResult:
+	return calculate_rim_simple(
+		book_value_per_share=book_value_per_share,
+		shares_outstanding=shares_outstanding,
+		return_on_equity=return_on_equity,
+		cost_of_equity=cost_of_equity,
+		payout_ratio=payout_ratio,
+		projection_years=projection_years,
+		terminal_growth=terminal_growth,
+		current_price=current_price,
+	)
+
+
+def _calculate_rim_driver_registry(
+	book_value_per_share: float,
+	shares_outstanding: float,
+	return_on_equity: list[float],
+	cost_of_equity: float,
+	payout_ratio: list[float],
+	terminal_growth: float,
+	current_price: float,
+) -> ValuationResult:
+	return calculate_rim_from_drivers(
+		book_value_per_share=book_value_per_share,
+		shares_outstanding=shares_outstanding,
+		return_on_equity=return_on_equity,
+		cost_of_equity=cost_of_equity,
+		payout_ratio=payout_ratio,
+		terminal_growth=terminal_growth,
+		current_price=current_price,
+	)
+
+
 MODEL_REGISTRY: dict[str, RegistryEntry] = {
 	"FCFF": {
 		"display_name": MODEL_NAME_MAP["FCFF"],
@@ -231,6 +274,10 @@ MODEL_REGISTRY: dict[str, RegistryEntry] = {
 	"DDM": {
 		"display_name": MODEL_NAME_MAP["DDM"],
 		"variants": {
+			DCF_DRIVER_VARIANT: {
+				"function": calculate_ddm_from_drivers,
+				"parameters": ["earnings_per_share", "payout_ratio", "required_return", "terminal_growth", "shares_outstanding", "current_price"],
+			},
 			"Single-Stage (Stable)": {
 				"function": calculate_ddm_single_stage,
 				"parameters": ["current_dividend_per_share", "shares_outstanding", "required_return", "stable_growth", "current_price"],
@@ -253,8 +300,12 @@ MODEL_REGISTRY: dict[str, RegistryEntry] = {
 		"display_name": MODEL_NAME_MAP["RIM"],
 		"variants": {
 			None: {
-				"function": calculate_rim,
+				"function": _calculate_rim_simple_registry,
 				"parameters": ["book_value_per_share", "shares_outstanding", "return_on_equity", "cost_of_equity", "payout_ratio", "projection_years", "terminal_growth", "current_price"],
+			},
+			DCF_DRIVER_VARIANT: {
+				"function": _calculate_rim_driver_registry,
+				"parameters": ["book_value_per_share", "shares_outstanding", "return_on_equity", "cost_of_equity", "payout_ratio", "terminal_growth", "current_price"],
 			}
 		},
 	},

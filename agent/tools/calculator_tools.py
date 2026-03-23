@@ -20,6 +20,7 @@ ASSUMPTION_LABELS = {
 	"ebit_margin": "EBIT Margin Forecast",
 	"tax_rate": "Tax Rate Forecast",
 	"net_borrowing": "Net Borrowing Forecast",
+	"earnings_per_share": "Earnings Per Share Forecast",
 	"required_return": "Required Return",
 	"high_growth": "High Growth",
 	"stable_growth": "Stable Growth",
@@ -29,6 +30,7 @@ ASSUMPTION_LABELS = {
 	"high_growth_years": "High Growth Years",
 	"transition_years": "Fade Years",
 	"half_life_years": "H-Model Half-Life",
+	"book_value_per_share": "Book Value / Share",
 	"return_on_equity": "Forward ROE",
 	"payout_ratio": "Payout Ratio",
 	"total_debt": "Total Debt",
@@ -114,6 +116,8 @@ def assumption_keys_for_choice(selected_model: str, growth_stage: str | None) ->
 			]
 		return ["cost_of_equity", "growth_rate", "projection_years", "terminal_growth"]
 	if selected_model == "DDM":
+		if growth_stage == "Drivers":
+			return ["earnings_per_share", "payout_ratio", "required_return", "terminal_growth", "shares_outstanding"]
 		if growth_stage == "Single-Stage (Stable)":
 			return ["required_return", "stable_growth"]
 		if growth_stage == "Three-Stage (Multi-stage decay)":
@@ -121,6 +125,8 @@ def assumption_keys_for_choice(selected_model: str, growth_stage: str | None) ->
 		if growth_stage == "H-Model":
 			return ["required_return", "short_term_growth", "stable_growth", "half_life_years"]
 		return ["required_return", "high_growth", "projection_years", "terminal_growth"]
+	if growth_stage == "Drivers":
+		return ["book_value_per_share", "return_on_equity", "payout_ratio", "cost_of_equity", "terminal_growth", "shares_outstanding"]
 	return ["return_on_equity", "cost_of_equity", "payout_ratio", "projection_years", "terminal_growth"]
 
 

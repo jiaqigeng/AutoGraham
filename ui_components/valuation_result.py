@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 import pandas as pd
 import streamlit as st
 
@@ -9,45 +11,25 @@ from valuation.types import ValuationResult
 
 def render_result_cards(result: ValuationResult) -> None:
 	margin_text = "N/A" if result.margin_of_safety is None else f"{result.margin_of_safety:.2f}%"
-	present_value_label = "PV of Explicit Forecast" if result.discounted_terminal_value > 0 else "Core Present Value"
-	third_label = "PV of Tax Shield" if result.tax_shield_value is not None else "Enterprise Value" if result.enterprise_value is not None else "Discounted Terminal Value"
-	third_value = format_compact_currency(result.tax_shield_value if result.tax_shield_value is not None else result.enterprise_value if result.enterprise_value is not None else result.discounted_terminal_value)
+	margin_tone = "is-positive" if (result.margin_of_safety or 0) > 0 else "is-negative" if (result.margin_of_safety or 0) < 0 else ""
+	cards = [
+		("Current Price", format_price(result.current_price), "Spot market price used to compute the live gap versus fair value.", ""),
+		("Fair Value / Share", f"${result.fair_value_per_share:,.2f}", "Intrinsic value per share implied by the selected framework.", ""),
+		("Margin of Safety", margin_text, "Positive means implied upside. Negative means the market is richer than your inputs.", margin_tone),
+	]
+	card_html = "".join(
+		(
+			f"<div class='ai-dashboard-metric-card {tone}'>"
+			f"<div class='ai-dashboard-metric-label'>{html.escape(label)}</div>"
+			f"<div class='ai-dashboard-metric-value'>{html.escape(value)}</div>"
+			f"<div class='valuation-lab-metric-copy'>{html.escape(copy)}</div>"
+			"</div>"
+		)
+		for label, value, copy, tone in cards
+	)
 
 	st.markdown(
-		f"""
-		<div class="valuation-results-grid">
-		  <div class="valuation-metric-card">
-		    <div class="valuation-metric-label">Fair Value / Share</div>
-		    <div class="valuation-metric-value">${result.fair_value_per_share:,.2f}</div>
-		    <div class="valuation-metric-copy">Intrinsic value per share implied by the selected framework.</div>
-		  </div>
-		  <div class="valuation-metric-card">
-		    <div class="valuation-metric-label">Current Price</div>
-		    <div class="valuation-metric-value">{format_price(result.current_price)}</div>
-		    <div class="valuation-metric-copy">Spot market price used to compute the live gap versus fair value.</div>
-		  </div>
-		  <div class="valuation-metric-card">
-		    <div class="valuation-metric-label">Margin of Safety</div>
-		    <div class="valuation-metric-value">{margin_text}</div>
-		    <div class="valuation-metric-copy">Positive means implied upside. Negative means the market is richer than your inputs.</div>
-		  </div>
-		  <div class="valuation-metric-card">
-		    <div class="valuation-metric-label">Equity Value</div>
-		    <div class="valuation-metric-value">{format_compact_currency(result.equity_value)}</div>
-		    <div class="valuation-metric-copy">Total equity value produced after the model-specific bridge from operations to shareholders.</div>
-		  </div>
-		  <div class="valuation-metric-card">
-		    <div class="valuation-metric-label">{present_value_label}</div>
-		    <div class="valuation-metric-value">{format_compact_currency(result.present_value_of_cash_flows)}</div>
-		    <div class="valuation-metric-copy">Present value contribution from forecasted cash flows or residual earnings before the final bridge.</div>
-		  </div>
-		  <div class="valuation-metric-card">
-		    <div class="valuation-metric-label">{third_label}</div>
-		    <div class="valuation-metric-value">{third_value}</div>
-		    <div class="valuation-metric-copy">The last major value driver to sanity-check before trusting the output.</div>
-		  </div>
-		</div>
-		""",
+		f"<div class='ai-dashboard-metrics valuation-lab-metrics'>{card_html}</div>",
 		unsafe_allow_html=True,
 	)
 
@@ -109,25 +91,29 @@ def render_formula_guide(model_label: str, growth_stage: str | None, result: Val
 
 
 def render_ai_summary(valuation_pick: dict[str, object]) -> None:
+	margin_value = format_percent((valuation_pick.get("margin_of_safety") or 0) / 100, allow_negative=True) if valuation_pick.get("margin_of_safety") is not None else "N/A"
+	margin_raw = valuation_pick.get("margin_of_safety")
+	try:
+		margin_number = float(margin_raw) if margin_raw is not None else 0.0
+	except (TypeError, ValueError):
+		margin_number = 0.0
+	margin_tone = "is-positive" if margin_number > 0 else "is-negative" if margin_number < 0 else ""
+	cards = [
+		("AI Model", str(valuation_pick.get("selected_model", "N/A")), str(valuation_pick.get("growth_stage") or "No growth-stage variant"), ""),
+		("AI Fair Value", format_price(valuation_pick.get("fair_value_per_share")), "Deterministic Python result using AI-selected assumptions.", ""),
+		("Margin of Safety", margin_value, "Computed after Python valuation ran.", margin_tone),
+	]
+	card_html = "".join(
+		(
+			f"<div class='ai-dashboard-metric-card {tone}'>"
+			f"<div class='ai-dashboard-metric-label'>{html.escape(label)}</div>"
+			f"<div class='ai-dashboard-metric-value'>{html.escape(value)}</div>"
+			f"<div class='valuation-lab-metric-copy'>{html.escape(copy)}</div>"
+			"</div>"
+		)
+		for label, value, copy, tone in cards
+	)
 	st.markdown(
-		f"""
-		<div class="valuation-results-grid">
-		  <div class="valuation-metric-card">
-		    <div class="valuation-metric-label">AI Model</div>
-		    <div class="valuation-metric-value">{valuation_pick.get('selected_model', 'N/A')}</div>
-		    <div class="valuation-metric-copy">{valuation_pick.get('growth_stage') or 'No growth-stage variant'}</div>
-		  </div>
-		  <div class="valuation-metric-card">
-		    <div class="valuation-metric-label">AI Fair Value</div>
-		    <div class="valuation-metric-value">{format_price(valuation_pick.get('fair_value_per_share'))}</div>
-		    <div class="valuation-metric-copy">Deterministic Python result using AI-selected assumptions.</div>
-		  </div>
-		  <div class="valuation-metric-card">
-		    <div class="valuation-metric-label">Margin of Safety</div>
-		    <div class="valuation-metric-value">{format_percent((valuation_pick.get('margin_of_safety') or 0) / 100, allow_negative=True) if valuation_pick.get('margin_of_safety') is not None else 'N/A'}</div>
-		    <div class="valuation-metric-copy">Computed after Python valuation ran.</div>
-		  </div>
-		</div>
-		""",
+		f"<div class='ai-dashboard-metrics valuation-lab-metrics'>{card_html}</div>",
 		unsafe_allow_html=True,
 	)

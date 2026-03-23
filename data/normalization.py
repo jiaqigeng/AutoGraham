@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from valuation.common import safe_number
 
 
@@ -40,10 +42,17 @@ def format_ratio(value: object) -> str:
 
 
 def format_percent(value: object, *, allow_negative: bool = False) -> str:
-	rate = safe_number(value)
+	if value is None:
+		return "N/A"
+	try:
+		rate = float(value)
+	except (TypeError, ValueError):
+		return "N/A"
+	if math.isnan(rate):
+		return "N/A"
 	if not allow_negative and rate < 0:
 		return "N/A"
-	if abs(rate) > 0.25:
+	if abs(rate) > 1:
 		rate = rate / 100
 	return f"{rate:.2%}"
 

@@ -106,6 +106,36 @@ def _detect_dcf_driver_variant(calculation_model: str | None, combined_inputs: M
 	return None
 
 
+def _detect_rim_driver_variant(combined_inputs: Mapping[str, Any]) -> str | None:
+	"""Infer whether the RIM payload is using the driver-based calculation path."""
+
+	if not _is_numeric_sequence(combined_inputs.get("return_on_equity")):
+		return None
+	if not _is_numeric_sequence(combined_inputs.get("payout_ratio")):
+		return None
+	if not isinstance(combined_inputs.get("book_value_per_share"), (int, float)):
+		return None
+	if not isinstance(combined_inputs.get("cost_of_equity"), (int, float)):
+		return None
+	return DCF_DRIVER_VARIANT
+
+
+def _detect_ddm_driver_variant(combined_inputs: Mapping[str, Any]) -> str | None:
+	"""Infer whether the DDM payload is using the driver-based calculation path."""
+
+	if not _is_numeric_sequence(combined_inputs.get("earnings_per_share")):
+		return None
+	if not _is_numeric_sequence(combined_inputs.get("payout_ratio")):
+		return None
+	if not isinstance(combined_inputs.get("required_return"), (int, float)):
+		return None
+	if not isinstance(combined_inputs.get("terminal_growth"), (int, float)):
+		return None
+	if not isinstance(combined_inputs.get("shares_outstanding"), (int, float)):
+		return None
+	return DCF_DRIVER_VARIANT
+
+
 def validate_parameter_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
 	"""Validate the model-ready payload right before deterministic valuation."""
 
@@ -142,7 +172,9 @@ def validate_parameter_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
 	combined_inputs = {**fact_lookup, **coerce_numeric_assumptions(parsed.assumptions)}
 	growth_stage = parsed.selected_variant
 	if valuation_model_code == "RIM":
-		growth_stage = None
+		growth_stage = _detect_rim_driver_variant(combined_inputs)
+	elif valuation_model_code == "DDM":
+		growth_stage = _detect_ddm_driver_variant(combined_inputs) or growth_stage
 	elif valuation_model_code in {"FCFF", "FCFE"}:
 		growth_stage = _detect_dcf_driver_variant(calculation_model, combined_inputs)
 	if "dividend_per_share" in combined_inputs and "current_dividend_per_share" not in combined_inputs:
@@ -156,6 +188,10 @@ def validate_parameter_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
 			combined_inputs["growth_rate"] = combined_inputs["high_growth"]
 		elif "stable_growth" in combined_inputs:
 			combined_inputs["growth_rate"] = combined_inputs["stable_growth"]
+	if valuation_model_code == "RIM" and growth_stage != DCF_DRIVER_VARIANT and "projection_years" not in combined_inputs:
+		roe_path = combined_inputs.get("return_on_equity")
+		if isinstance(roe_path, list) and roe_path:
+			combined_inputs["projection_years"] = len(roe_path)
 
 	try:
 		if parsed.selected_model == "DCF":

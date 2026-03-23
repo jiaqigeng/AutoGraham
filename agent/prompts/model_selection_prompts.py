@@ -34,7 +34,7 @@ Available valuation models:
 
 Available variants for reasoning:
 - DCF: set "selected_variant" to null
-- DDM: "Single-Stage (Stable)", "Two-Stage", "Three-Stage (Multi-stage decay)", or "H-Model"
+- DDM: "Drivers", "Single-Stage (Stable)", "Two-Stage", "Three-Stage (Multi-stage decay)", or "H-Model"
 - RIM: set "selected_variant" to null
 
 Your responsibilities:
@@ -59,7 +59,7 @@ High-level model guidance:
 - RIM is often more appropriate for banks, insurers, and other financial firms where book value and return on equity are central.
 - DDM is often more appropriate for mature, stable dividend-paying companies when dividends are meaningful and relatively predictable.
 - DCF is often more appropriate for operating companies where cash flow is the core driver and reasonably estimable.
-- The current deterministic DCF path is a simple model using one growth_rate, one projection horizon, and one terminal growth assumption.
+- The user-facing valuation lab keeps DDM stage-based, while the AI workflow can still use richer driver-based DCF, DDM, and RIM inputs when those models are selected.
 - Additional analysis focus: {focus}
 
 Output requirements:
@@ -67,7 +67,7 @@ Output requirements:
 - Do not output markdown.
 - "selected_model" must be exactly one of: "DCF", "DDM", "RIM".
 - "selected_variant" must be null for DCF and RIM.
-- "selected_variant" must be exactly one of: "Single-Stage (Stable)", "Two-Stage", "Three-Stage (Multi-stage decay)", "H-Model", or null.
+- "selected_variant" must be exactly one of: "Drivers", "Single-Stage (Stable)", "Two-Stage", "Three-Stage (Multi-stage decay)", "H-Model", or null.
 - "preferred_calculation_model" must be "FCFF" or "FCFE" when "selected_model" is "DCF".
 - "preferred_calculation_model" must be "DDM" when "selected_model" is "DDM".
 - "preferred_calculation_model" must be "RIM" when "selected_model" is "RIM".
