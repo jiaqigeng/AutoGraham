@@ -2,13 +2,45 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from agent.deep_agent import invoke_text_prompt
-from agent.prompts.parameter_prompts import build_parameter_prompt
+from agent.llm_utils import build_chat_model, invoke_text_prompt
+from agent.skill_prompt_loader import build_parameter_prompt
 from agent.schemas import AssumptionReason, CandidateFact, ParameterPayload
 from agent.tools.calculator_tools import build_default_fetched_facts, default_parameter_fallback
-from agent.tools.finance_tools import resolve_stock_info
+from agent.tools.finance_tools import (
+	get_cash_flow_health,
+	get_company_profile_text,
+	get_income_statement,
+	get_valuation_metrics,
+	resolve_stock_info,
+)
+from agent.tools.sec_tools import get_relevant_filing_sections
+from agent.tools.web_search import (
+	search_company_market_context,
+	search_parameter_research,
+	search_parameter_research_batch,
+	search_web,
+)
 from agent.tools.validation_tools import extract_json_object
 from valuation.common import default_valuation_inputs
+
+
+PARAMETER_PLANNER_AGENT_SYSTEM_PROMPT = """
+You are the valuation parameter estimation specialist for AutoGraham.
+
+This stage receives the already-selected valuation path and explicit forecast horizon.
+
+Behavioral rules:
+- Respect the selected model family, driver path, calculation model, and chosen projection_years.
+- Use the model-specific parameter skill supplied in the user prompt. Do not switch to a different valuation family.
+- Use tools when needed to estimate missing drivers, especially web-search tools for current guidance, analyst expectations, strategic updates, capital intensity, and business-stage evidence.
+- Prefer grouped parameter searches for related driver families instead of one tool call per parameter whenever practical.
+- Use `search_parameter_research_batch` for closely related inputs and reserve `search_parameter_research` for follow-up work on a single parameter when grouped evidence is still insufficient.
+- Do not rely only on one broad company search when estimating multiple parameters; gather parameter-specific evidence across the required inputs efficiently.
+- Prefer company-specific public evidence, recent management commentary, and recent market context before making unsupported assumptions.
+- Keep fetched facts separate from estimated assumptions.
+- If evidence is incomplete, still make conservative estimates instead of refusing.
+- Return JSON only.
+""".strip()
 
 
 DCF_DRIVER_NOTE_MAP: dict[str, dict[str, str]] = {
@@ -55,6 +87,45 @@ DDM_DRIVER_NOTE_MAP: dict[str, str] = {
 	"terminal_growth": "terminal_growth",
 	"shares_outstanding": "shares_outstanding",
 }
+
+
+def _build_agent_executor(model_name: str | None):
+	try:
+		from langchain.agents import AgentExecutor, create_tool_calling_agent
+		from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+	except ImportError:
+		return None
+
+	llm = build_chat_model(model_name, temperature=0.0)
+	if llm is None:
+		return None
+
+	tools = [
+		search_web,
+		search_company_market_context,
+		search_parameter_research,
+		search_parameter_research_batch,
+		get_company_profile_text,
+		get_valuation_metrics,
+		get_income_statement,
+		get_cash_flow_health,
+		get_relevant_filing_sections,
+	]
+	prompt = ChatPromptTemplate.from_messages(
+		[
+			("system", PARAMETER_PLANNER_AGENT_SYSTEM_PROMPT),
+			("human", "{input}"),
+			MessagesPlaceholder("agent_scratchpad"),
+		]
+	)
+	agent = create_tool_calling_agent(llm, tools, prompt)
+	return AgentExecutor(
+		agent=agent,
+		tools=tools,
+		verbose=False,
+		handle_parsing_errors=True,
+		max_iterations=8,
+	)
 
 
 def _resolve_calculation_model(model_selection: Mapping[str, Any], defaults: Mapping[str, float]) -> str:
@@ -275,7 +346,50 @@ def _translate_ddm_driver_payload(
 	return assumptions, assumption_reasons, parameter_reason, model_warnings
 
 
-def estimate_parameters(
+def estimate_parameters_for_projection_years(
+	ticker: str,
+	selected_model: str,
+	selected_variant: str | None,
+	candidate_facts: list[Mapping[str, Any]],
+	calculation_model: str | None = None,
+	selected_projection_years: int | None = None,
+	projection_years_reason: str | None = None,
+	model_name: str | None = None,
+	analysis_focus: str | None = None,
+) -> str | None:
+	"""Estimate valuation parameters for the already-chosen explicit forecast horizon."""
+
+	prompt_text = build_parameter_prompt(
+		ticker=ticker,
+		selected_model=selected_model,
+		selected_variant=selected_variant,
+		candidate_facts=candidate_facts,
+		calculation_model=calculation_model,
+		selected_projection_years=selected_projection_years,
+		projection_years_reason=projection_years_reason,
+		analysis_focus=analysis_focus,
+	)
+
+	llm_text: str | None = None
+	executor = _build_agent_executor(model_name)
+	if executor is not None:
+		try:
+			result = executor.invoke({"input": prompt_text})
+			llm_text = str(result.get("output") or "").strip() or None
+		except Exception:
+			llm_text = None
+
+	if not llm_text:
+		llm_text = invoke_text_prompt(
+			system_prompt="Return JSON only.",
+			user_prompt=prompt_text,
+			model_name=model_name,
+			temperature=0.0,
+		)
+	return llm_text
+
+
+def plan_parameters(
 	ticker: str,
 	stock_info: Mapping[str, Any] | Any,
 	candidate_facts: list[Mapping[str, Any]],
@@ -297,6 +411,8 @@ def estimate_parameters(
 	)
 	selected_model = str(model_selection.get("selected_model") or "").upper()
 	selected_variant = model_selection.get("selected_variant")
+	selected_projection_years = model_selection.get("projection_years")
+	projection_years_reason = model_selection.get("projection_years_reason")
 	calculation_model = _resolve_calculation_model(model_selection, defaults)
 	use_driver_payload = (
 		(selected_model == "DCF" and calculation_model in {"FCFF", "FCFE"})
@@ -312,18 +428,16 @@ def estimate_parameters(
 		assumptions = dict(fallback.get("assumptions") or {})
 		assumption_reasons = list(fallback.get("assumption_reasons") or [])
 
-	llm_text = invoke_text_prompt(
-		system_prompt="Return JSON only.",
-		user_prompt=build_parameter_prompt(
-			ticker=ticker,
-			selected_model=selected_model,
-			selected_variant=selected_variant,
-			candidate_facts=candidate_facts,
-			calculation_model=calculation_model,
-			analysis_focus=analysis_focus,
-		),
+	llm_text = estimate_parameters_for_projection_years(
+		ticker=ticker,
+		selected_model=selected_model,
+		selected_variant=selected_variant,
+		candidate_facts=candidate_facts,
+		calculation_model=calculation_model,
+		selected_projection_years=int(selected_projection_years) if isinstance(selected_projection_years, (int, float)) else None,
+		projection_years_reason=str(projection_years_reason or "").strip() or None,
 		model_name=model_name,
-		temperature=0.0,
+		analysis_focus=analysis_focus,
 	)
 	if llm_text:
 		try:
@@ -387,7 +501,7 @@ def estimate_parameters(
 				f"No simple {selected_model} fallback was applied because no yearly-forecast payload was returned."
 			)
 			fallback["weak_or_uncertain_inputs"] = [
-				f"No {selected_model} yearly-forecast payload was returned by the parameter estimator."
+				f"No {selected_model} yearly-forecast payload was returned by the parameter planner."
 			]
 			confidence = 0.2
 		else:
@@ -406,3 +520,6 @@ def estimate_parameters(
 		weak_or_uncertain_inputs=list(fallback.get("weak_or_uncertain_inputs") or []),
 	)
 	return payload.model_dump()
+
+
+__all__ = ["estimate_parameters_for_projection_years", "plan_parameters"]

@@ -42,7 +42,7 @@ MODEL_META = {
 	},
 }
 
-GROWTH_OPTIONS = ["Single-Stage (Stable)", "Two-Stage", "Three-Stage (Multi-stage decay)"]
+GROWTH_OPTIONS = ["Single-Stage (Stable)", "Two-Stage"]
 
 
 def prepare_manual_valuation(stock_data: Any) -> dict[str, Any]:

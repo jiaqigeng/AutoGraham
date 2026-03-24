@@ -22,7 +22,7 @@ def run_ai_valuation(
 		"ticker": final_state.ticker,
 		"company_name": final_state.company_name,
 		"memo_markdown": final_state.research_report,
-		"model_selection": dict(final_state.metadata.get("model_selection") or {}),
+		"model_selection": final_state.model_selection,
 		"parameter_payload": final_state.parameter_payload,
 		"valuation_pick": final_state.valuation_result,
 		"fetched_facts": final_state.fetched_facts,

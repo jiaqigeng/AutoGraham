@@ -1,39 +1,22 @@
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Mapping
 
-from agent.deep_agent import invoke_text_prompt
-from agent.prompts.explanation_prompts import build_explanation_prompt
-
-
-def _format_citations(source_links: list[str], source_notes: list[Mapping[str, Any]]) -> str:
-	"""Format a short source section for the fallback explanation."""
-
-	note_lines = []
-	for note in source_notes[:5]:
-		title = note.get("title") or note.get("url") or "Source"
-		url = note.get("url")
-		if url:
-			note_lines.append(f"- [{title}]({url})")
-		else:
-			note_lines.append(f"- {title}")
-	for link in source_links[:5]:
-		if not any(link == note.get("url") for note in source_notes):
-			note_lines.append(f"- {link}")
-	return "\n".join(note_lines) or "- No external sources were captured."
+from agent.llm_utils import invoke_text_prompt
+from agent.skill_prompt_loader import build_explanation_prompt
 
 
 def _fallback_explanation(
 	ticker: str,
 	company_name: str,
 	source_links: list[str],
-	source_notes: list[Mapping[str, Any]],
-	model_selection: Mapping[str, Any],
-	parameter_payload: Mapping[str, Any],
-	valuation_result: Mapping[str, Any],
+	source_notes: list[Mapping[str, object]],
+	model_selection: Mapping[str, object],
+	parameter_payload: Mapping[str, object],
+	valuation_result: Mapping[str, object],
 	confidence: float | None,
 ) -> str:
-	"""Deterministic explanation used when the final explainer LLM is unavailable."""
+	"""Deterministic explanation used when the final writer LLM is unavailable."""
 
 	selected_model = model_selection.get("selected_model") or valuation_result.get("selected_model") or "the selected valuation model"
 	model_reason = model_selection.get("model_reason") or parameter_payload.get("parameter_reason") or "the chosen framework best matches the company's cash-flow profile and capital intensity."
@@ -43,15 +26,19 @@ def _fallback_explanation(
 	assumption_rows = "\n".join(
 		f"| **{item.get('label') or item.get('key')}** | {item.get('value')} | {item.get('reason')} |"
 		for item in (valuation_result.get("assumptions") or [])[:6]
+		if isinstance(item, Mapping)
 	)
 	financial_rows = []
 	for fact in (parameter_payload.get("fetched_facts") or [])[:8]:
+		if not isinstance(fact, Mapping):
+			continue
 		label = fact.get("label") or fact.get("key")
 		value = fact.get("value")
 		source = fact.get("source") or "Workflow anchor"
 		if label in {"Total Debt", "Cash", "Shares Outstanding", "Starting FCFF", "Starting FCFE", "Book Value per Share", "Current Price"}:
 			financial_rows.append(f"| **{label}** | {value} | {source} |")
 	financial_table = "\n".join(financial_rows)
+	_ = source_links, source_notes
 	return f"""
 # {company_name or ticker} Investment Research Report
 
@@ -111,22 +98,23 @@ The company should be judged on balance sheet flexibility, liquidity, leverage t
 """.strip()
 
 
-def explain_valuation(
+def write_report(
 	*,
 	ticker: str,
 	company_name: str,
 	research_report: str,
 	source_links: list[str],
-	source_notes: list[Mapping[str, Any]],
-	candidate_facts: list[Mapping[str, Any]],
-	model_selection: Mapping[str, Any],
-	parameter_payload: Mapping[str, Any],
-	valuation_result: Mapping[str, Any],
+	source_notes: list[Mapping[str, object]],
+	candidate_facts: list[Mapping[str, object]],
+	model_selection: Mapping[str, object],
+	parameter_payload: Mapping[str, object],
+	valuation_result: Mapping[str, object],
 	confidence: float | None,
 	model_name: str | None,
 ) -> str:
-	"""Explain the deterministic valuation output and cite what shaped it."""
+	"""Write the deterministic valuation output and cite what shaped it."""
 
+	_ = candidate_facts
 	llm_text = invoke_text_prompt(
 		system_prompt="Write markdown only.",
 		user_prompt=build_explanation_prompt(
@@ -154,3 +142,6 @@ def explain_valuation(
 		valuation_result=valuation_result,
 		confidence=confidence,
 	)
+
+
+__all__ = ["write_report"]

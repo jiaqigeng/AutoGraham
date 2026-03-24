@@ -47,6 +47,9 @@ def clip_value(value: float, lower: float, upper: float) -> float:
 	return max(lower, min(value, upper))
 
 
+DEFAULT_PROJECTION_YEARS = 5.0
+
+
 def latest_statement_column(frame: pd.DataFrame | None) -> pd.Series | _EmptySeries:
 	if frame is None:
 		return pd.Series(dtype=float) if pd is not None else _EmptySeries()
@@ -94,7 +97,7 @@ def derive_growth_assumptions(
 	info: Mapping[str, Any],
 	payout_ratio: float,
 	return_on_equity: float,
-) -> tuple[float, float, float, float, float]:
+) -> tuple[float, float]:
 	revenue_growth = normalize_rate(info.get("revenueGrowth"), 0.0)
 	earnings_growth = normalize_rate(info.get("earningsGrowth"), 0.0)
 	sustainable_growth = return_on_equity * max(0.0, 1 - payout_ratio)
@@ -107,17 +110,7 @@ def derive_growth_assumptions(
 	base_growth = sum(observed_growth_candidates) / len(observed_growth_candidates) if observed_growth_candidates else 0.06
 	high_growth = clip_value(base_growth, -0.05, 0.18)
 	stable_growth = clip_value(min(high_growth * 0.5, 0.03), -0.01, 0.03)
-
-	if high_growth >= 0.14:
-		projection_years = 7.0
-	elif high_growth >= 0.08:
-		projection_years = 5.0
-	else:
-		projection_years = 3.0
-
-	high_growth_years = projection_years
-	transition_years = 5.0 if high_growth > stable_growth + 0.03 else 3.0
-	return high_growth, stable_growth, projection_years, high_growth_years, transition_years
+	return high_growth, stable_growth
 
 
 def derive_capital_costs(
@@ -270,7 +263,7 @@ def default_valuation_inputs(
 	asset_beta = safe_divide(beta, 1 + ((1 - tax_rate) * debt_to_equity)) if market_cap > 0 else beta
 	unlevered_cost = clip_value(0.0425 + asset_beta * 0.055, 0.06, 0.16)
 
-	high_growth, stable_growth, projection_years, high_growth_years, transition_years = derive_growth_assumptions(info, payout_ratio, return_on_equity)
+	high_growth, stable_growth = derive_growth_assumptions(info, payout_ratio, return_on_equity)
 
 	return {
 		"current_price": current_price,
@@ -290,9 +283,7 @@ def default_valuation_inputs(
 		"cost_of_debt": cost_of_debt,
 		"high_growth": high_growth,
 		"stable_growth": stable_growth,
-		"projection_years": projection_years,
-		"high_growth_years": high_growth_years,
-		"transition_years": transition_years,
+		"projection_years": DEFAULT_PROJECTION_YEARS,
 	}
 
 
@@ -343,21 +334,3 @@ def discount_explicit_series(
 	terminal_value = cash_flow * (1 + terminal_growth) / (discount_rate - terminal_growth)
 	discounted_terminal_value = terminal_value / (1 + discount_rate) ** len(growth_rates)
 	return present_value_sum, terminal_value, discounted_terminal_value, schedule
-
-
-def build_decay_growth_rates(
-	high_growth: float,
-	terminal_growth: float,
-	high_growth_years: int,
-	transition_years: int,
-) -> list[float]:
-	if high_growth_years < 1:
-		raise ValueError("High-growth period must be at least one year.")
-	if transition_years < 1:
-		raise ValueError("Transition period must be at least one year.")
-
-	growth_rates = [high_growth] * high_growth_years
-	for step in range(1, transition_years + 1):
-		growth_rate = high_growth + (terminal_growth - high_growth) * (step / transition_years)
-		growth_rates.append(growth_rate)
-	return growth_rates

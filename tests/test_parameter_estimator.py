@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from agent.subagents.parameter_estimator import estimate_parameters
+from agent.subagents.parameter_planner import estimate_parameters_for_projection_years, plan_parameters
 
 
 class ParameterEstimatorTests(unittest.TestCase):
@@ -59,12 +59,15 @@ class ParameterEstimatorTests(unittest.TestCase):
 }
 """
 
-		with patch("agent.subagents.parameter_estimator.invoke_text_prompt", return_value=driver_json):
-			payload = estimate_parameters(
+		with patch("agent.subagents.parameter_planner._build_agent_executor", return_value=None), patch(
+			"agent.subagents.parameter_planner.invoke_text_prompt",
+			return_value=driver_json,
+		):
+			payload = plan_parameters(
 				ticker="DRV",
 				stock_info=stock,
 				candidate_facts=[],
-				model_selection={"selected_model": "DCF", "selected_variant": None, "preferred_calculation_model": "FCFF"},
+				model_selection={"selected_model": "DCF", "selected_variant": "Drivers", "preferred_calculation_model": "FCFF", "projection_years": 5},
 			)
 
 		self.assertEqual(payload["selected_model"], "DCF")
@@ -91,12 +94,15 @@ class ParameterEstimatorTests(unittest.TestCase):
 			annual_income_stmt=None,
 		)
 
-		with patch("agent.subagents.parameter_estimator.invoke_text_prompt", return_value='{"parameter_reason":"old shape"}'):
-			payload = estimate_parameters(
+		with patch("agent.subagents.parameter_planner._build_agent_executor", return_value=None), patch(
+			"agent.subagents.parameter_planner.invoke_text_prompt",
+			return_value='{"parameter_reason":"old shape"}',
+		):
+			payload = plan_parameters(
 				ticker="AAPL",
 				stock_info=stock,
 				candidate_facts=[],
-				model_selection={"selected_model": "DCF", "selected_variant": None, "preferred_calculation_model": "FCFF"},
+				model_selection={"selected_model": "DCF", "selected_variant": "Drivers", "preferred_calculation_model": "FCFF", "projection_years": 5},
 			)
 
 		self.assertEqual(payload["selected_model"], "DCF")
@@ -149,12 +155,15 @@ class ParameterEstimatorTests(unittest.TestCase):
 }
 """
 
-		with patch("agent.subagents.parameter_estimator.invoke_text_prompt", return_value=driver_json):
-			payload = estimate_parameters(
+		with patch("agent.subagents.parameter_planner._build_agent_executor", return_value=None), patch(
+			"agent.subagents.parameter_planner.invoke_text_prompt",
+			return_value=driver_json,
+		):
+			payload = plan_parameters(
 				ticker="BNK",
 				stock_info=stock,
 				candidate_facts=[],
-				model_selection={"selected_model": "RIM", "selected_variant": None, "preferred_calculation_model": "RIM"},
+				model_selection={"selected_model": "RIM", "selected_variant": "Drivers", "preferred_calculation_model": "RIM", "projection_years": 4},
 			)
 
 		self.assertEqual(payload["selected_model"], "RIM")
@@ -205,12 +214,15 @@ class ParameterEstimatorTests(unittest.TestCase):
 }
 """
 
-		with patch("agent.subagents.parameter_estimator.invoke_text_prompt", return_value=driver_json):
-			payload = estimate_parameters(
+		with patch("agent.subagents.parameter_planner._build_agent_executor", return_value=None), patch(
+			"agent.subagents.parameter_planner.invoke_text_prompt",
+			return_value=driver_json,
+		):
+			payload = plan_parameters(
 				ticker="DVD",
 				stock_info=stock,
 				candidate_facts=[],
-				model_selection={"selected_model": "DDM", "selected_variant": "Drivers", "preferred_calculation_model": "DDM"},
+				model_selection={"selected_model": "DDM", "selected_variant": "Drivers", "preferred_calculation_model": "DDM", "projection_years": 4},
 			)
 
 		self.assertEqual(payload["selected_model"], "DDM")
@@ -221,6 +233,27 @@ class ParameterEstimatorTests(unittest.TestCase):
 		self.assertEqual(payload["assumptions"]["required_return"], 0.09)
 		self.assertTrue(any(item["key"] == "earnings_per_share" for item in payload["assumption_reasons"]))
 		self.assertIn("Payout policy could change if the economy weakens.", payload["weak_or_uncertain_inputs"])
+
+	def test_estimate_parameters_for_projection_years_uses_prompt_fallback_when_agent_executor_unavailable(self) -> None:
+		with patch("agent.subagents.parameter_planner._build_agent_executor", return_value=None), patch(
+			"agent.subagents.parameter_planner.invoke_text_prompt",
+			return_value='{"inputs": {"revenue": [100], "wacc": 0.1}}',
+		) as invoke_mock:
+			result = estimate_parameters_for_projection_years(
+				ticker="DRV",
+				selected_model="DCF",
+				selected_variant="Drivers",
+				candidate_facts=[{"label": "Revenue", "value": 100.0, "source": "Income statement"}],
+				calculation_model="FCFF",
+				selected_projection_years=5,
+				projection_years_reason="Five years captures the normalization period.",
+				analysis_focus="Stay conservative on terminal assumptions.",
+			)
+
+		self.assertEqual(result, '{"inputs": {"revenue": [100], "wacc": 0.1}}')
+		self.assertTrue(invoke_mock.called)
+		self.assertIn("Calculation model: FCFF", invoke_mock.call_args.kwargs["user_prompt"])
+		self.assertIn("Chosen projection years: 5", invoke_mock.call_args.kwargs["user_prompt"])
 
 
 if __name__ == "__main__":

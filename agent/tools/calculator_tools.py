@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from valuation import MODEL_NAME_MAP, calculate_model, default_valuation_inputs
+from valuation.registry import resolve_model_variant
 
 from agent.tools.validation_tools import validate_parameter_payload
 
@@ -17,19 +18,13 @@ ASSUMPTION_LABELS = {
 	"depreciation": "Depreciation Forecast",
 	"capex": "Capex Forecast",
 	"change_in_nwc": "Change in NWC Forecast",
-	"ebit_margin": "EBIT Margin Forecast",
-	"tax_rate": "Tax Rate Forecast",
 	"net_borrowing": "Net Borrowing Forecast",
 	"earnings_per_share": "Earnings Per Share Forecast",
 	"required_return": "Required Return",
 	"high_growth": "High Growth",
 	"stable_growth": "Stable Growth",
 	"terminal_growth": "Terminal Growth",
-	"short_term_growth": "Short-Term Growth",
 	"projection_years": "Projection Years",
-	"high_growth_years": "High Growth Years",
-	"transition_years": "Fade Years",
-	"half_life_years": "H-Model Half-Life",
 	"book_value_per_share": "Book Value / Share",
 	"return_on_equity": "Forward ROE",
 	"payout_ratio": "Payout Ratio",
@@ -49,6 +44,13 @@ FACT_LABELS = {
 	"cash": "Cash",
 	"return_on_equity": "Observed ROE",
 	"payout_ratio": "Observed Payout Ratio",
+}
+
+NON_DISPLAY_ASSUMPTION_KEYS = {
+	"current_dividend_per_share",
+	"current_fcfe",
+	"current_fcff",
+	"current_price",
 }
 
 
@@ -82,52 +84,14 @@ def build_default_fetched_facts(defaults: Mapping[str, float]) -> list[dict[str,
 
 
 def assumption_keys_for_choice(selected_model: str, growth_stage: str | None) -> list[str]:
-	"""Return the parameter keys most relevant to the selected calculation path."""
+	"""Return display-worthy parameter keys derived from the valuation registry."""
 
-	if selected_model == "FCFF":
-		if growth_stage == "Drivers":
-			return [
-				"revenue",
-				"ebit_margin",
-				"tax_rate",
-				"depreciation",
-				"capex",
-				"change_in_nwc",
-				"wacc",
-				"terminal_growth",
-				"total_debt",
-				"cash",
-				"shares_outstanding",
-			]
-		return ["wacc", "growth_rate", "projection_years", "terminal_growth"]
-	if selected_model == "FCFE":
-		if growth_stage == "Drivers":
-			return [
-				"revenue",
-				"ebit_margin",
-				"tax_rate",
-				"depreciation",
-				"capex",
-				"change_in_nwc",
-				"net_borrowing",
-				"cost_of_equity",
-				"terminal_growth",
-				"shares_outstanding",
-			]
-		return ["cost_of_equity", "growth_rate", "projection_years", "terminal_growth"]
-	if selected_model == "DDM":
-		if growth_stage == "Drivers":
-			return ["earnings_per_share", "payout_ratio", "required_return", "terminal_growth", "shares_outstanding"]
-		if growth_stage == "Single-Stage (Stable)":
-			return ["required_return", "stable_growth"]
-		if growth_stage == "Three-Stage (Multi-stage decay)":
-			return ["required_return", "high_growth", "high_growth_years", "transition_years", "terminal_growth"]
-		if growth_stage == "H-Model":
-			return ["required_return", "short_term_growth", "stable_growth", "half_life_years"]
-		return ["required_return", "high_growth", "projection_years", "terminal_growth"]
-	if growth_stage == "Drivers":
-		return ["book_value_per_share", "return_on_equity", "payout_ratio", "cost_of_equity", "terminal_growth", "shares_outstanding"]
-	return ["return_on_equity", "cost_of_equity", "payout_ratio", "projection_years", "terminal_growth"]
+	try:
+		entry = resolve_model_variant(selected_model, growth_stage)
+	except Exception:
+		return []
+
+	return [key for key in entry["parameters"] if key not in NON_DISPLAY_ASSUMPTION_KEYS]
 
 
 def default_parameter_fallback(
@@ -155,25 +119,8 @@ def default_parameter_fallback(
 		}
 	elif calculation_code == "DDM":
 		assumptions = {"required_return": defaults["cost_of_equity"]}
-		if selected_variant == "H-Model":
-			assumptions.update(
-				{
-					"short_term_growth": defaults["high_growth"],
-					"stable_growth": defaults["stable_growth"],
-					"half_life_years": defaults["projection_years"] / 2,
-				}
-			)
-		elif selected_variant == "Single-Stage (Stable)":
+		if selected_variant == "Single-Stage (Stable)":
 			assumptions["stable_growth"] = defaults["stable_growth"]
-		elif selected_variant == "Three-Stage (Multi-stage decay)":
-			assumptions.update(
-				{
-					"high_growth": defaults["high_growth"],
-					"high_growth_years": defaults["high_growth_years"],
-					"transition_years": defaults["transition_years"],
-					"terminal_growth": defaults["stable_growth"],
-				}
-			)
 		else:
 			assumptions.update(
 				{
@@ -215,6 +162,7 @@ def _result_to_payload(result: Any, selected_model: str, growth_stage: str | Non
 		"present_value_of_cash_flows": result.present_value_of_cash_flows,
 		"discounted_terminal_value": result.discounted_terminal_value,
 		"enterprise_value": result.enterprise_value,
+		"schedule": list(getattr(result, "schedule", []) or []),
 		"tax_shield_value": result.tax_shield_value,
 	}
 
@@ -272,7 +220,7 @@ def calculate_recommended_value(
 		annual_income_stmt=annual_income_stmt,
 	)
 	selected_model = str(recommendation.get("selected_model") or "").upper()
-	growth_stage = recommendation.get("growth_stage")
+	growth_stage = recommendation.get("selected_variant", recommendation.get("growth_stage"))
 	if selected_model not in MODEL_NAME_MAP:
 		raise ValueError("AI returned an unsupported valuation model.")
 

@@ -13,13 +13,12 @@ PERCENT_KEYS = {
 	"high_growth",
 	"stable_growth",
 	"terminal_growth",
-	"short_term_growth",
 	"return_on_equity",
 	"payout_ratio",
 	"tax_rate",
 	"ebit_margin",
 }
-YEAR_KEYS = {"projection_years", "high_growth_years", "transition_years", "half_life_years"}
+YEAR_KEYS = {"projection_years"}
 COUNT_KEYS = {"shares_outstanding"}
 CURRENCY_KEYS = {
 	"revenue",
@@ -504,7 +503,7 @@ def _summarize_key_drivers(
 	elif model_code == "DDM":
 		if "required_return" in lookup:
 			drivers.append(f"required return at {_format_assumption_scalar('required_return', lookup['required_return'].get('value'))}")
-		for growth_key in ("stable_growth", "high_growth", "short_term_growth", "terminal_growth"):
+		for growth_key in ("stable_growth", "high_growth", "terminal_growth"):
 			if growth_key in lookup:
 				drivers.append(f"{lookup[growth_key]['label']} of {_format_assumption_scalar(growth_key, lookup[growth_key].get('value'))}")
 				break

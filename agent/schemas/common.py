@@ -42,6 +42,9 @@ class AssumptionReason(FlexibleSchema):
 class ModelRecommendation(FlexibleSchema):
 	selected_model: Literal["DCF", "DDM", "RIM"]
 	selected_variant: str | None = None
+	selected_submodel: Literal["FCFF", "FCFE", "DDM", "RIM"] | None = None
+	projection_years: Literal[5, 10] | None = None
+	projection_years_reason: str = ""
 	model_reason: str = ""
 	preferred_calculation_model: Literal["FCFF", "FCFE", "DDM", "RIM"] | None = None
 	confidence: float | None = None

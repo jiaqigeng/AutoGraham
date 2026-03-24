@@ -9,8 +9,6 @@ except ImportError:
 	def load_dotenv(*args, **kwargs):
 		return False
 
-from agent.state import AgentRunState
-
 
 DEFAULT_AGENT_MODEL = "gpt-4.1-mini"
 
@@ -75,32 +73,3 @@ def invoke_text_prompt(
 	except Exception:
 		return None
 	return response_text(response).strip() or None
-
-
-class AutoGrahamDeepAgent:
-	"""Deep Agents style entrypoint for the AI Analyst workflow.
-
-	TODO:
-	- Add provider-specific tracing / observability hooks.
-	- Upgrade this wrapper to use a native LangGraph runtime once the dependency is added.
-	- Optionally expose streaming progress for the Streamlit UI.
-	"""
-
-	def __init__(self, model_name: str | None = None):
-		self.model_name = model_name or default_model_name()
-
-	def run(
-		self,
-		ticker: str,
-		stock_data: Any,
-		analysis_focus: str | None = None,
-	) -> AgentRunState:
-		from agent.graph import run_agent_graph
-
-		state = AgentRunState(
-			ticker=ticker.strip().upper(),
-			model_name=self.model_name,
-			analysis_focus=analysis_focus,
-			stock_data=stock_data,
-		)
-		return run_agent_graph(state)

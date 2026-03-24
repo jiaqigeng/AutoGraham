@@ -12,9 +12,7 @@ from valuation.dcf import (
 )
 from valuation.ddm import (
 	calculate_ddm_from_drivers,
-	calculate_ddm_h_model,
 	calculate_ddm_single_stage,
-	calculate_ddm_three_stage,
 	calculate_ddm_two_stage,
 )
 from valuation.rim import calculate_rim_from_drivers, calculate_rim_simple
@@ -286,14 +284,6 @@ MODEL_REGISTRY: dict[str, RegistryEntry] = {
 				"function": calculate_ddm_two_stage,
 				"parameters": ["current_dividend_per_share", "shares_outstanding", "high_growth", "projection_years", "required_return", "terminal_growth", "current_price"],
 			},
-			"Three-Stage (Multi-stage decay)": {
-				"function": calculate_ddm_three_stage,
-				"parameters": ["current_dividend_per_share", "shares_outstanding", "high_growth", "high_growth_years", "transition_years", "required_return", "terminal_growth", "current_price"],
-			},
-			"H-Model": {
-				"function": calculate_ddm_h_model,
-				"parameters": ["current_dividend_per_share", "shares_outstanding", "short_term_growth", "stable_growth", "half_life_years", "required_return", "current_price"],
-			},
 		},
 	},
 	"RIM": {
@@ -337,7 +327,7 @@ def calculate_model(
 	entry = resolve_model_variant(model_code, growth_stage)
 	function: Callable[..., ValuationResult] = entry["function"]
 	parameters: list[str] = entry["parameters"]
-	integer_fields = {"projection_years", "high_growth_years", "transition_years"}
+	integer_fields = {"projection_years"}
 	call_args = [
 		int(round(assumptions[name])) if name in integer_fields else assumptions[name]
 		for name in parameters

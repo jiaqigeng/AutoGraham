@@ -1,17 +1,38 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
-import pandas as pd
+try:
+	import pandas as pd
+except ModuleNotFoundError:  # pragma: no cover - depends on local interpreter setup.
+	pd = None  # type: ignore[assignment]
 
-from agent.tools.calculator_tools import calculate_recommended_value, run_valuation_calculation
-from agent.tools.validation_tools import extract_json_object, validate_parameter_payload
+try:
+	from agent.tools.calculator_tools import (
+		assumption_keys_for_choice,
+		calculate_recommended_value,
+		default_parameter_fallback,
+		run_valuation_calculation,
+	)
+	from agent.tools.validation_tools import extract_json_object, validate_parameter_payload
+	from valuation.types import ValuationResult
+except ModuleNotFoundError:  # pragma: no cover - depends on local interpreter setup.
+	assumption_keys_for_choice = None  # type: ignore[assignment]
+	calculate_recommended_value = None  # type: ignore[assignment]
+	default_parameter_fallback = None  # type: ignore[assignment]
+	extract_json_object = None  # type: ignore[assignment]
+	run_valuation_calculation = None  # type: ignore[assignment]
+	validate_parameter_payload = None  # type: ignore[assignment]
+	ValuationResult = None  # type: ignore[assignment]
 
 
 def _frame(values: dict[str, float]) -> pd.DataFrame:
+	assert pd is not None
 	return pd.DataFrame({pd.Timestamp("2024-12-31"): values})
 
 
+@unittest.skipUnless(pd is not None and calculate_recommended_value is not None, "calculator-tool dependencies are not installed in this interpreter")
 class AgentToolsTests(unittest.TestCase):
 	def test_extract_json_object_handles_fenced_block(self) -> None:
 		payload = extract_json_object('```json\n{"selected_model":"RIM"}\n```')
@@ -208,6 +229,94 @@ class AgentToolsTests(unittest.TestCase):
 		self.assertEqual(result["growth_stage"], "Drivers")
 		self.assertGreater(result["fair_value_per_share"], 0)
 		self.assertTrue(any(row["key"] == "return_on_equity" for row in result["assumptions"]))
+
+	def test_assumption_keys_for_choice_derive_from_registry_parameters(self) -> None:
+		self.assertEqual(
+			assumption_keys_for_choice("FCFF", None),
+			["growth_rate", "projection_years", "wacc", "terminal_growth", "total_debt", "cash", "shares_outstanding"],
+		)
+		self.assertEqual(
+			assumption_keys_for_choice("DDM", "Single-Stage (Stable)"),
+			["shares_outstanding", "required_return", "stable_growth"],
+		)
+
+	def test_default_parameter_fallback_builds_two_stage_ddm_defaults(self) -> None:
+		defaults = {
+			"cost_of_equity": 0.09,
+			"high_growth": 0.07,
+			"stable_growth": 0.03,
+			"projection_years": 10,
+		}
+
+		fallback = default_parameter_fallback("DDM", "Two-Stage", defaults)
+
+		self.assertEqual(fallback["assumptions"]["required_return"], 0.09)
+		self.assertEqual(fallback["assumptions"]["high_growth"], 0.07)
+		self.assertEqual(fallback["assumptions"]["projection_years"], 10)
+		self.assertEqual(fallback["assumptions"]["terminal_growth"], 0.03)
+
+	def test_run_valuation_calculation_returns_schedule(self) -> None:
+		payload = {
+			"parameter_reason": "Schedule should be preserved.",
+			"assumption_reasons": [{"key": "growth_rate", "reason": "Test reason."}],
+		}
+		valuation_result = ValuationResult(
+			model_label="FCFF",
+			stage_label="Simple DCF",
+			equity_value=1_000.0,
+			fair_value_per_share=10.0,
+			current_price=8.0,
+			margin_of_safety=25.0,
+			present_value_of_cash_flows=600.0,
+			discounted_terminal_value=400.0,
+			schedule=[{"year": 1, "fcf": 100.0}],
+			enterprise_value=1_100.0,
+		)
+
+		with patch(
+			"agent.tools.calculator_tools.validate_parameter_payload",
+			return_value={
+				"is_valid": True,
+				"errors": [],
+				"normalized_payload": {},
+				"normalized_inputs": {"growth_rate": 0.05, "projection_years": 5, "wacc": 0.09, "terminal_growth": 0.03},
+				"valuation_model_code": "FCFF",
+				"growth_stage": None,
+			},
+		), patch("agent.tools.calculator_tools.calculate_model", return_value=valuation_result):
+			result = run_valuation_calculation(payload)
+
+		self.assertEqual(result["schedule"], [{"year": 1, "fcf": 100.0}])
+
+	def test_calculate_recommended_value_accepts_selected_variant_alias(self) -> None:
+		info = {
+			"currentPrice": 40.0,
+			"marketCap": 40_000.0,
+			"bookValue": 28.0,
+			"returnOnEquity": 0.13,
+			"payoutRatio": 0.45,
+			"beta": 1.0,
+		}
+
+		with patch(
+			"agent.tools.calculator_tools.run_valuation_calculation",
+			return_value={"selected_model": "RIM"},
+		) as mocked_run:
+			calculate_recommended_value(
+				info,
+				{
+					"selected_model": "RIM",
+					"selected_variant": "Drivers",
+					"parameter_reason": "Driver path.",
+					"assumptions": {"return_on_equity": [0.13, 0.12], "payout_ratio": [0.4, 0.45], "cost_of_equity": 0.1},
+				},
+				annual_cashflow=_frame({"Free Cash Flow": 100.0}),
+				annual_balance_sheet=_frame({"Stockholders Equity": 28_000.0}),
+				annual_income_stmt=_frame({"Net Income": 3_640.0}),
+			)
+
+		payload = mocked_run.call_args.args[0]
+		self.assertEqual(payload["selected_variant"], "Drivers")
 
 
 if __name__ == "__main__":

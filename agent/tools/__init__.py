@@ -1,31 +1,54 @@
-from agent.tools.calculator_tools import calculate_recommended_value, default_parameter_fallback, run_valuation_calculation
-from agent.tools.finance_tools import (
-	build_company_snapshot,
-	build_source_links,
-	get_cash_flow_health,
-	get_company_profile_text,
-	get_income_statement,
-	get_valuation_metrics,
-)
-from agent.tools.sec_tools import get_filing_source_hints, sec_research_note
-from agent.tools.validation_tools import validate_parameter_payload
-from agent.tools.web_search import search_market_context, search_market_context_payload, search_market_context_results
+from __future__ import annotations
+
+from importlib import import_module
+from typing import Any
 
 
-__all__ = [
-	"build_company_snapshot",
-	"build_source_links",
-	"calculate_recommended_value",
-	"default_parameter_fallback",
-	"get_cash_flow_health",
-	"get_company_profile_text",
-	"get_filing_source_hints",
-	"get_income_statement",
-	"get_valuation_metrics",
-	"run_valuation_calculation",
-	"search_market_context",
-	"search_market_context_payload",
-	"search_market_context_results",
-	"sec_research_note",
-	"validate_parameter_payload",
-]
+_EXPORT_TO_MODULE = {
+	"CashFlowHealthData": "agent.tools.finance_tools",
+	"CompanyProfileData": "agent.tools.finance_tools",
+	"IncomeStatementData": "agent.tools.finance_tools",
+	"ValuationMetricsData": "agent.tools.finance_tools",
+	"build_company_snapshot": "agent.tools.finance_tools",
+	"build_source_links": "agent.tools.finance_tools",
+	"calculate_recommended_value": "agent.tools.calculator_tools",
+	"default_parameter_fallback": "agent.tools.calculator_tools",
+	"format_cash_flow_health_text": "agent.tools.finance_tools",
+	"format_company_profile_text": "agent.tools.finance_tools",
+	"format_income_statement_text": "agent.tools.finance_tools",
+	"format_valuation_metrics_text": "agent.tools.finance_tools",
+	"get_cash_flow_health": "agent.tools.finance_tools",
+	"get_cash_flow_health_data": "agent.tools.finance_tools",
+	"get_company_profile_data": "agent.tools.finance_tools",
+	"get_company_profile_text": "agent.tools.finance_tools",
+	"get_filing_source_hints": "agent.tools.sec_tools",
+	"get_relevant_filing_section_notes": "agent.tools.sec_tools",
+	"get_relevant_filing_sections": "agent.tools.sec_tools",
+	"get_income_statement": "agent.tools.finance_tools",
+	"get_income_statement_data": "agent.tools.finance_tools",
+	"get_valuation_metrics": "agent.tools.finance_tools",
+	"get_valuation_metrics_data": "agent.tools.finance_tools",
+	"resolve_stock_info": "agent.tools.finance_tools",
+	"run_valuation_calculation": "agent.tools.calculator_tools",
+	"search_company_market_context": "agent.tools.web_search",
+	"search_company_market_context_payload": "agent.tools.web_search",
+	"search_company_market_context_results": "agent.tools.web_search",
+	"search_web": "agent.tools.web_search",
+	"search_web_payload": "agent.tools.web_search",
+	"search_web_results": "agent.tools.web_search",
+	"search_parameter_research": "agent.tools.web_search",
+	"search_parameter_research_payload": "agent.tools.web_search",
+	"search_parameter_research_results": "agent.tools.web_search",
+	"validate_parameter_payload": "agent.tools.validation_tools",
+}
+
+
+def __getattr__(name: str) -> Any:
+	module_name = _EXPORT_TO_MODULE.get(name)
+	if module_name is None:
+		raise AttributeError(f"module 'agent.tools' has no attribute {name!r}")
+	module = import_module(module_name)
+	return getattr(module, name)
+
+
+__all__ = list(_EXPORT_TO_MODULE)

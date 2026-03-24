@@ -16,8 +16,4 @@ class DDMSchema(FlexibleSchema):
 	high_growth: float | None = None
 	stable_growth: float | None = None
 	terminal_growth: float | None = None
-	short_term_growth: float | None = None
 	projection_years: float | None = None
-	high_growth_years: float | None = None
-	transition_years: float | None = None
-	half_life_years: float | None = None

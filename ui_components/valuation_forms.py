@@ -321,21 +321,7 @@ def _render_ddm_inputs(defaults: dict[str, float], growth_stage: str, scope: str
 		assumptions["projection_years"] = int(col3.number_input("Stage 1 Years", min_value=1, max_value=20, value=int(defaults["projection_years"]), step=1, key=_input_key(scope, prefix, "projection_years")))
 		assumptions["terminal_growth"] = col4.number_input("Terminal Dividend Growth (%)", value=_percent_display_default(defaults["stable_growth"]), step=0.5, key=_input_key(scope, prefix, "terminal_growth")) / 100
 		return _run("Dividend Discount Model (DDM)", growth_stage, assumptions)
-	if growth_stage == "Three-Stage (Multi-stage decay)":
-		col1, col2, col3 = st.columns(3)
-		assumptions["required_return"] = col1.number_input("Required Return (%)", min_value=0.1, value=_percent_display_default(defaults["cost_of_equity"]), step=0.5, key=_input_key(scope, prefix, "required_return_three")) / 100
-		assumptions["high_growth"] = col2.number_input("High Dividend Growth (%)", value=_percent_display_default(defaults["high_growth"]), step=0.5, key=_input_key(scope, prefix, "high_growth_three")) / 100
-		assumptions["high_growth_years"] = int(col3.number_input("High Growth Years", min_value=1, max_value=20, value=int(defaults["high_growth_years"]), step=1, key=_input_key(scope, prefix, "high_growth_years")))
-		col4, col5 = st.columns(2)
-		assumptions["transition_years"] = int(col4.number_input("Fade Years", min_value=1, max_value=20, value=int(defaults["transition_years"]), step=1, key=_input_key(scope, prefix, "transition_years")))
-		assumptions["terminal_growth"] = col5.number_input("Terminal Dividend Growth (%)", value=_percent_display_default(defaults["stable_growth"]), step=0.5, key=_input_key(scope, prefix, "terminal_growth_three")) / 100
-		return _run("Dividend Discount Model (DDM)", growth_stage, assumptions)
-	col1, col2, col3, col4 = st.columns(4)
-	assumptions["required_return"] = col1.number_input("Required Return (%)", min_value=0.1, value=_percent_display_default(defaults["cost_of_equity"]), step=0.5, key=_input_key(scope, prefix, "required_return_h")) / 100
-	assumptions["half_life_years"] = col2.number_input("Extraordinary Growth Half-Life (Years)", min_value=0.5, value=_half_step(float(defaults["projection_years"]) / 2), step=0.5, key=_input_key(scope, prefix, "half_life_years"))
-	assumptions["short_term_growth"] = col3.number_input("Short-Term Dividend Growth (%)", value=_percent_display_default(defaults["high_growth"]), step=0.5, key=_input_key(scope, prefix, "short_term_growth")) / 100
-	assumptions["stable_growth"] = col4.number_input("Stable Dividend Growth (%)", value=_percent_display_default(defaults["stable_growth"]), step=0.5, key=_input_key(scope, prefix, "stable_growth_h")) / 100
-	return _run("Dividend Discount Model (DDM)", growth_stage, assumptions)
+	return _run("Dividend Discount Model (DDM)", "Two-Stage", assumptions)
 
 
 def _render_rim_inputs(defaults: dict[str, float], scope: str):
@@ -397,12 +383,10 @@ def render_valuation_lab(stock_data) -> None:
 
 			growth_stage: str | None = None
 			if model == "Dividend Discount Model (DDM)":
-				growth_options = list(GROWTH_OPTIONS)
-				growth_options.append("H-Model")
 				growth_stage = st.segmented_control(
 					"Growth stage assumption",
-					options=growth_options,
-					default=growth_options[1] if "Two-Stage" in growth_options else growth_options[0],
+					options=GROWTH_OPTIONS,
+					default="Two-Stage",
 					key=f"growth_stage_{scope}_{model}",
 					width="stretch",
 				)

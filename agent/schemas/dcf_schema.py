@@ -23,6 +23,4 @@ class DCFSchema(FlexibleSchema):
 	stable_growth: float | None = None
 	high_growth: float | None = None
 	projection_years: float | None = None
-	high_growth_years: float | None = None
-	transition_years: float | None = None
 	terminal_growth: float | None = None

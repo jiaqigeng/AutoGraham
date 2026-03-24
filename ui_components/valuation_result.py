@@ -73,8 +73,6 @@ def render_formula_guide(model_label: str, growth_stage: str | None, result: Val
 			st.latex(r"Enterprise\ Value = \sum_{t=1}^{N}\frac{FCFF_t}{(1 + WACC)^t} + \frac{TV}{(1+WACC)^N}")
 			st.latex(r"Equity\ Value = Enterprise\ Value - Debt + Cash")
 			st.latex(r"Fair\ Value\ Per\ Share = \frac{Equity\ Value}{Shares\ Outstanding}")
-		elif model_label.startswith("Dividend Discount Model") and growth_stage == "H-Model":
-			st.latex(r"P_0 = \frac{D_0(1+g_L) + D_0H(g_S-g_L)}{r-g_L}")
 		elif model_label.startswith("Dividend Discount Model"):
 			st.latex(r"D_t = D_{t-1} \times (1 + g_t)")
 			st.latex(r"P_0 = \sum_{t=1}^{n}\frac{D_t}{(1 + r)^t} + \frac{D_n(1+g_{term})}{(r-g_{term})(1+r)^n}")
