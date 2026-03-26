@@ -10,9 +10,9 @@ inject_global_styles()
 
 render_page_hero(
 	"",
-	"Track the live quote, valuation multiples, and quarterly earnings bridge in the same polished workspace used across Valuation Lab and AI Analyst.",
+	"Track the live quote, valuation multiples, and quarterly income statement waterfall in the same polished workspace used across Valuation Lab and AI Analyst.",
 	eyebrow="Live market dashboard",
-	pills=["Quote snapshot", "Quarterly earnings bridge", "Consistent research UI"],
+	pills=["Quote snapshot", "Income statement waterfall", "Consistent research UI"],
 )
 
 with st.container():

@@ -11,16 +11,34 @@ class AIWorkflowTests(unittest.TestCase):
 	def test_ai_workflow_returns_research_valuation_and_explanation(self) -> None:
 		stock = SimpleNamespace(info={"currentPrice": 100.0, "shortName": "TestCo"})
 		with patch(
-			"agent.orchestrator.build_company_context",
+			"agent.orchestrator.run_macro_analysis",
 			return_value={
-				"report_markdown": "## Minimal Case File\n### Company Type\n- Strong business",
+				"analysis_agent": "macro",
+				"report_markdown": "### Top-Down Setup\n- Supportive setup",
 				"source_links": ["https://example.com/aapl"],
 				"source_notes": [{"title": "Example", "url": "https://example.com/aapl"}],
 				"confidence": 0.7,
 			},
 		), patch(
-			"agent.orchestrator.extract_candidate_facts",
-			return_value=[{"key": "current_price", "label": "Current Price", "value": 100.0, "numeric_value": 100.0, "source": "Yahoo Finance"}],
+			"agent.orchestrator.run_qualitative_analysis",
+			return_value={
+				"analysis_agent": "qualitative",
+				"report_markdown": "### Business Model\n- Strong business",
+				"source_links": ["https://example.com/qual"],
+				"source_notes": [{"title": "Qual", "url": "https://example.com/qual"}],
+				"candidate_facts": [{"key": "company_type", "label": "Company Type", "value": "Operating company", "source": "Qualitative Agent"}],
+				"confidence": 0.65,
+			},
+		), patch(
+			"agent.orchestrator.run_quantitative_analysis",
+			return_value={
+				"analysis_agent": "quantitative",
+				"report_markdown": "### Market Anchors\n- Current price 100",
+				"source_links": ["https://example.com/quant"],
+				"source_notes": [{"title": "Quant", "url": "https://example.com/quant"}],
+				"candidate_facts": [{"key": "current_price", "label": "Current Price", "value": 100.0, "numeric_value": 100.0, "source": "Yahoo Finance"}],
+				"confidence": 0.8,
+			},
 		), patch(
 			"agent.orchestrator.select_model",
 			return_value={
@@ -68,6 +86,8 @@ class AIWorkflowTests(unittest.TestCase):
 		self.assertIn("memo_markdown", result)
 		self.assertEqual(result["ticker"], "AAPL")
 		self.assertEqual(result["company_name"], "TestCo")
+		self.assertIn("parallel_analyses", result)
+		self.assertIn("macro", result["parallel_analyses"])
 		self.assertEqual(result["model_selection"]["selected_model"], "DCF")
 		self.assertEqual(result["valuation_pick"]["selected_model"], "FCFF")
 		self.assertEqual(result["parameter_payload"]["calculation_model"], "FCFF")

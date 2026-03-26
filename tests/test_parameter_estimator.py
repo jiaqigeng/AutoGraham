@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from agent.subagents.parameter_planner import estimate_parameters_for_projection_years, plan_parameters
+from agent.subagents.valuation.parameter_planner import estimate_parameters_for_projection_years, plan_parameters
 
 
 class ParameterEstimatorTests(unittest.TestCase):
@@ -59,8 +59,8 @@ class ParameterEstimatorTests(unittest.TestCase):
 }
 """
 
-		with patch("agent.subagents.parameter_planner._build_agent_executor", return_value=None), patch(
-			"agent.subagents.parameter_planner.invoke_text_prompt",
+		with patch("agent.subagents.valuation.parameter_planner._build_agent_executor", return_value=None), patch(
+			"agent.subagents.valuation.parameter_planner.invoke_text_prompt",
 			return_value=driver_json,
 		):
 			payload = plan_parameters(
@@ -94,8 +94,8 @@ class ParameterEstimatorTests(unittest.TestCase):
 			annual_income_stmt=None,
 		)
 
-		with patch("agent.subagents.parameter_planner._build_agent_executor", return_value=None), patch(
-			"agent.subagents.parameter_planner.invoke_text_prompt",
+		with patch("agent.subagents.valuation.parameter_planner._build_agent_executor", return_value=None), patch(
+			"agent.subagents.valuation.parameter_planner.invoke_text_prompt",
 			return_value='{"parameter_reason":"old shape"}',
 		):
 			payload = plan_parameters(
@@ -155,8 +155,8 @@ class ParameterEstimatorTests(unittest.TestCase):
 }
 """
 
-		with patch("agent.subagents.parameter_planner._build_agent_executor", return_value=None), patch(
-			"agent.subagents.parameter_planner.invoke_text_prompt",
+		with patch("agent.subagents.valuation.parameter_planner._build_agent_executor", return_value=None), patch(
+			"agent.subagents.valuation.parameter_planner.invoke_text_prompt",
 			return_value=driver_json,
 		):
 			payload = plan_parameters(
@@ -214,8 +214,8 @@ class ParameterEstimatorTests(unittest.TestCase):
 }
 """
 
-		with patch("agent.subagents.parameter_planner._build_agent_executor", return_value=None), patch(
-			"agent.subagents.parameter_planner.invoke_text_prompt",
+		with patch("agent.subagents.valuation.parameter_planner._build_agent_executor", return_value=None), patch(
+			"agent.subagents.valuation.parameter_planner.invoke_text_prompt",
 			return_value=driver_json,
 		):
 			payload = plan_parameters(
@@ -235,8 +235,8 @@ class ParameterEstimatorTests(unittest.TestCase):
 		self.assertIn("Payout policy could change if the economy weakens.", payload["weak_or_uncertain_inputs"])
 
 	def test_estimate_parameters_for_projection_years_uses_prompt_fallback_when_agent_executor_unavailable(self) -> None:
-		with patch("agent.subagents.parameter_planner._build_agent_executor", return_value=None), patch(
-			"agent.subagents.parameter_planner.invoke_text_prompt",
+		with patch("agent.subagents.valuation.parameter_planner._build_agent_executor", return_value=None), patch(
+			"agent.subagents.valuation.parameter_planner.invoke_text_prompt",
 			return_value='{"inputs": {"revenue": [100], "wacc": 0.1}}',
 		) as invoke_mock:
 			result = estimate_parameters_for_projection_years(

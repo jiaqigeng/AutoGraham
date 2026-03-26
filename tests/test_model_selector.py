@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from agent.subagents.model_selector import select_model
+from agent.subagents.valuation.model_selector import select_model
 
 
 class ModelSelectorTests(unittest.TestCase):
@@ -29,8 +29,8 @@ class ModelSelectorTests(unittest.TestCase):
 			}
 		)
 
-		with patch("agent.subagents.model_selector._build_agent_executor", return_value=fake_executor), patch(
-			"agent.subagents.model_selector.invoke_text_prompt",
+		with patch("agent.subagents.valuation.model_selector._build_agent_executor", return_value=fake_executor), patch(
+			"agent.subagents.valuation.model_selector.invoke_text_prompt",
 			return_value=None,
 		):
 			result = select_model(
@@ -68,8 +68,8 @@ class ModelSelectorTests(unittest.TestCase):
 			}
 		)
 
-		with patch("agent.subagents.model_selector._build_agent_executor", return_value=fake_executor), patch(
-			"agent.subagents.model_selector.invoke_text_prompt",
+		with patch("agent.subagents.valuation.model_selector._build_agent_executor", return_value=fake_executor), patch(
+			"agent.subagents.valuation.model_selector.invoke_text_prompt",
 			return_value=None,
 		):
 			result = select_model(
@@ -107,8 +107,8 @@ class ModelSelectorTests(unittest.TestCase):
 			}
 		)
 
-		with patch("agent.subagents.model_selector._build_agent_executor", return_value=fake_executor), patch(
-			"agent.subagents.model_selector.invoke_text_prompt",
+		with patch("agent.subagents.valuation.model_selector._build_agent_executor", return_value=fake_executor), patch(
+			"agent.subagents.valuation.model_selector.invoke_text_prompt",
 			return_value=None,
 		):
 			result = select_model(

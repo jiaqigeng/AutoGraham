@@ -3,11 +3,12 @@ from __future__ import annotations
 import unittest
 
 from agent.skill_prompt_loader import (
-	build_context_request,
-	build_context_system_prompt,
+	build_extraction_prompt,
+	build_macro_analysis_prompts,
 	build_dcf_parameter_prompt,
 	build_model_selection_prompt,
 	build_parameter_prompt,
+	build_qualitative_analysis_prompts,
 )
 
 
@@ -41,29 +42,6 @@ class PromptTests(unittest.TestCase):
 		self.assertIn("Output structured JSON only.", prompt)
 		self.assertIn("Additional analysis focus: Be conservative about dividend durability.", prompt)
 		self.assertNotIn("{{ticker}}", prompt)
-
-	def test_context_system_prompt_includes_minimal_case_file_contract(self) -> None:
-		prompt = build_context_system_prompt("MSFT", "Microsoft Corporation")
-
-		self.assertIn("You are the lightweight Context Builder for AutoGraham.", prompt)
-		self.assertIn("Build only the broad business context needed before model selection.", prompt)
-		self.assertIn("Use tools only when needed, not by default.", prompt)
-		self.assertIn("## Minimal Case File", prompt)
-		self.assertIn("### Company Identity", prompt)
-		self.assertIn("### Business Model", prompt)
-		self.assertIn("### Company Type", prompt)
-		self.assertIn("### Current Phase", prompt)
-
-	def test_context_request_includes_company_hint(self) -> None:
-		prompt = build_context_request(
-			target_ticker="MSFT",
-			company_name="Microsoft Corporation",
-		)
-
-		self.assertIn("company_name_hint: Microsoft Corporation", prompt)
-		self.assertIn("ticker: MSFT", prompt)
-		self.assertIn("build only the minimal case file needed before model selection", prompt)
-		self.assertNotIn("Additional user focus", prompt)
 
 	def test_dcf_parameter_prompt_includes_yearly_fcff_contract(self) -> None:
 		prompt = build_dcf_parameter_prompt(
@@ -181,6 +159,56 @@ class PromptTests(unittest.TestCase):
 		self.assertIn('"return_on_equity": []', prompt)
 		self.assertIn('"payout_ratio": []', prompt)
 		self.assertIn("Additional analysis focus: Stay conservative on excess-return fade.", prompt)
+
+	def test_macro_analysis_prompts_render_from_skill_markdown(self) -> None:
+		system_prompt, user_prompt = build_macro_analysis_prompts(
+			ticker="MSFT",
+			company_name="Microsoft Corporation",
+			sector="Technology",
+			industry="Software - Infrastructure",
+			competitors=["AMZN", "GOOGL"],
+			macro_lines=["- CPI: 3.1 as of 2026-03-01."],
+			company_news_lines=["- Microsoft AI momentum continues: Enterprise demand remains healthy."],
+			market_news_lines=["- Cloud spending stays resilient: Hyperscaler capex remains elevated."],
+			tailwind_lines=["- AI platform adoption remains strong."],
+			headwind_lines=["- Competition in cloud infrastructure remains intense."],
+			analysis_focus="Focus on cloud and AI demand durability.",
+		)
+
+		self.assertIn("You are AutoGraham's Macro & Industry Agent.", system_prompt)
+		self.assertIn("Ticker: MSFT", user_prompt)
+		self.assertIn("Competitors (inferred): AMZN, GOOGL", user_prompt)
+		self.assertIn("Analysis focus: Focus on cloud and AI demand durability.", user_prompt)
+		self.assertNotIn("{{ticker}}", user_prompt)
+
+	def test_qualitative_analysis_prompts_render_from_skill_markdown(self) -> None:
+		system_prompt, user_prompt = build_qualitative_analysis_prompts(
+			ticker="ADBE",
+			company_summary="Adobe sells creative and document software through subscription models.",
+			revenue_driver_lines=["- Business: Subscription revenue remains the primary driver."],
+			moat_lines=["- Business: Switching costs remain meaningful for creative professionals."],
+			risk_lines=["- Risk Factors: Competition from AI-native tools could pressure pricing."],
+			analysis_focus="Focus on product ecosystem stickiness.",
+		)
+
+		self.assertIn("You are AutoGraham's Qualitative Analyst Agent.", system_prompt)
+		self.assertIn("Ticker: ADBE", user_prompt)
+		self.assertIn("Company summary: Adobe sells creative", user_prompt)
+		self.assertIn("Focus on product ecosystem stickiness.", user_prompt)
+		self.assertNotIn("{{company_summary}}", user_prompt)
+
+	def test_extraction_prompt_renders_from_skill_markdown(self) -> None:
+		system_prompt, user_prompt = build_extraction_prompt(
+			ticker="AAPL",
+			research_report="Revenue growth is slowing while services remain resilient.",
+			source_notes=[{"title": "10-K", "snippet": "Services gross margin remains strong."}],
+		)
+
+		self.assertEqual(system_prompt, "Return JSON only.")
+		self.assertIn("Specialized role: Source extractor.", user_prompt)
+		self.assertIn("Ticker: AAPL", user_prompt)
+		self.assertIn("- 10-K: Services gross margin remains strong.", user_prompt)
+		self.assertNotIn("{{source_notes}}", user_prompt)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import gzip
 import unittest
 from unittest.mock import patch
 
 from agent.tools.sec_tools import (
+	_decode_response_bytes,
 	build_sec_company_url,
 	get_recent_filing_metadata,
 	get_relevant_filing_section_notes,
@@ -29,6 +31,8 @@ SUBMISSIONS_PAYLOAD = {
 
 FILING_HTML = """
 <html><body>
+<h2>Item 1. Business</h2>
+<p>Apple generates revenue from devices, services subscriptions, and platform-related software sales.</p>
 <h2>Item 1A. Risk Factors</h2>
 <p>Demand could weaken in a recession and supply concentration could pressure results.</p>
 <h2>Item 1B. Unresolved Staff Comments</h2>
@@ -48,6 +52,12 @@ QUARTERLY_FILING_HTML = """
 
 
 class SecToolsTests(unittest.TestCase):
+	def test_decode_response_bytes_handles_gzip_payloads(self) -> None:
+		payload = gzip.compress(b'{"ok": true}')
+
+		self.assertEqual(_decode_response_bytes(payload, "gzip"), b'{"ok": true}')
+		self.assertEqual(_decode_response_bytes(payload, ""), b'{"ok": true}')
+
 	def test_build_sec_company_url(self) -> None:
 		self.assertIn("CIK=AAPL", build_sec_company_url("aapl"))
 
@@ -87,8 +97,11 @@ class SecToolsTests(unittest.TestCase):
 		self.assertIn("Management Discussion and Analysis", notes[0]["title"])
 		self.assertIn("guidance points to stronger revenue", notes[0]["snippet"])
 		self.assertEqual(notes[1]["form_type"], "10-K")
-		self.assertIn("Risk Factors", notes[1]["title"])
-		self.assertIn("Demand could weaken", notes[1]["snippet"])
+		self.assertIn("Business", notes[1]["title"])
+		self.assertIn("devices, services subscriptions", notes[1]["snippet"])
+		self.assertEqual(notes[2]["form_type"], "10-K")
+		self.assertIn("Risk Factors", notes[2]["title"])
+		self.assertIn("Demand could weaken", notes[2]["snippet"])
 
 
 if __name__ == "__main__":

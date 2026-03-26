@@ -183,7 +183,7 @@ def render_income_waterfall(quarterly_income_stmt, *, annual_income_stmt=None) -
 		st.markdown('<div class="market-view-section-anchor"></div>', unsafe_allow_html=True)
 		st.markdown(
 			_render_market_section_header(
-				"Income bridge",
+				"Income waterfall",
 				"Income Statement Waterfall",
 				"",
 			),

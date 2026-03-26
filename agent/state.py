@@ -6,8 +6,11 @@ from typing import Any, Literal, Mapping, TypedDict, cast
 
 WorkflowStep = Literal[
 	"supervisor_plan",
-	"build_company_context",
-	"extract_candidate_facts",
+	"parallel_analysis_start",
+	"run_macro_analysis",
+	"run_qualitative_analysis",
+	"run_quantitative_analysis",
+	"merge_parallel_analysis",
 	"select_model_and_variant",
 	"plan_parameters",
 	"validate_parameters",
@@ -38,6 +41,9 @@ class AgentGraphState(TypedDict, total=False):
 	model_name: str | None
 	analysis_focus: str | None
 	stock_data: Any | None
+	macro_analysis: dict[str, Any]
+	qualitative_analysis: dict[str, Any]
+	quantitative_analysis: dict[str, Any]
 	source_links: list[str]
 	source_notes: list[dict[str, Any]]
 	candidate_facts: list[dict[str, Any]]
@@ -75,8 +81,11 @@ def _normalize_next_step(value: Any) -> WorkflowStep | None:
 	text = str(value or "").strip()
 	if text in {
 		"supervisor_plan",
-		"build_company_context",
-		"extract_candidate_facts",
+		"parallel_analysis_start",
+		"run_macro_analysis",
+		"run_qualitative_analysis",
+		"run_quantitative_analysis",
+		"merge_parallel_analysis",
 		"select_model_and_variant",
 		"plan_parameters",
 		"validate_parameters",
@@ -109,6 +118,9 @@ class AgentRunState:
 	model_name: str | None = None
 	analysis_focus: str | None = None
 	stock_data: Any | None = None
+	macro_analysis: dict[str, Any] = field(default_factory=dict)
+	qualitative_analysis: dict[str, Any] = field(default_factory=dict)
+	quantitative_analysis: dict[str, Any] = field(default_factory=dict)
 	source_links: list[str] = field(default_factory=list)
 	source_notes: list[dict[str, Any]] = field(default_factory=list)
 	candidate_facts: list[dict[str, Any]] = field(default_factory=list)
@@ -145,6 +157,16 @@ class AgentRunState:
 		"""Return the selected valuation family details recorded by the orchestrator."""
 
 		return dict(self.metadata.get("model_selection") or {})
+
+	@property
+	def parallel_analyses(self) -> dict[str, dict[str, Any]]:
+		"""Return the parallel analysis artifacts keyed by agent name."""
+
+		return {
+			"macro": dict(self.macro_analysis),
+			"qualitative": dict(self.qualitative_analysis),
+			"quantitative": dict(self.quantitative_analysis),
+		}
 
 	@property
 	def validated_payload(self) -> dict[str, Any]:
@@ -192,6 +214,9 @@ class AgentRunState:
 			"model_name": self.model_name,
 			"analysis_focus": self.analysis_focus,
 			"stock_data": self.stock_data,
+			"macro_analysis": dict(self.macro_analysis),
+			"qualitative_analysis": dict(self.qualitative_analysis),
+			"quantitative_analysis": dict(self.quantitative_analysis),
 			"source_links": list(self.source_links),
 			"source_notes": list(self.source_notes),
 			"candidate_facts": list(self.candidate_facts),
@@ -224,6 +249,9 @@ class AgentRunState:
 			model_name=payload.get("model_name"),
 			analysis_focus=payload.get("analysis_focus"),
 			stock_data=payload.get("stock_data"),
+			macro_analysis=dict(payload.get("macro_analysis") or {}),
+			qualitative_analysis=dict(payload.get("qualitative_analysis") or {}),
+			quantitative_analysis=dict(payload.get("quantitative_analysis") or {}),
 			source_links=list(payload.get("source_links") or []),
 			source_notes=list(payload.get("source_notes") or []),
 			candidate_facts=list(payload.get("candidate_facts") or []),

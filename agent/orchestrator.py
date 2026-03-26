@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from agent.registry import get_subagent
 from agent.state import AgentGraphState, AgentRunState, WorkflowStep
-from agent.subagents.context_builder import extract_candidate_facts
+from agent.subagents.research.common import merge_candidate_facts
 from agent.tools.calculator_tools import run_valuation_calculation
 from agent.tools.validation_tools import validate_parameter_payload
 from data.cache import stock_data_cache_scope
 
 
-build_company_context = get_subagent("context_builder").handler
+run_macro_analysis = get_subagent("macro_agent").handler
+run_qualitative_analysis = get_subagent("qualitative_agent").handler
+run_quantitative_analysis = get_subagent("quantitative_agent").handler
 select_model = get_subagent("model_selector").handler
 plan_parameters = get_subagent("parameter_planner").handler
 write_report = get_subagent("writer").handler
@@ -18,8 +21,11 @@ write_report = get_subagent("writer").handler
 
 GRAPH_STEPS = (
 	"supervisor_plan",
-	"build_company_context",
-	"extract_candidate_facts",
+	"parallel_analysis_start",
+	"run_macro_analysis",
+	"run_qualitative_analysis",
+	"run_quantitative_analysis",
+	"merge_parallel_analysis",
 	"select_model_and_variant",
 	"plan_parameters",
 	"validate_parameters",
@@ -29,11 +35,13 @@ GRAPH_STEPS = (
 
 
 def _wrap_node(node: Callable[[AgentRunState], AgentRunState]) -> Callable[[AgentGraphState], AgentGraphState]:
-	"""Adapt a dataclass-based node for LangGraph's dictionary state interface."""
+	"""Adapt a dataclass node and emit only changed state keys for graph merging."""
 
 	def runner(payload: AgentGraphState) -> AgentGraphState:
 		state = AgentRunState.from_graph_state(payload)
-		return node(state).to_graph_state()
+		before = state.to_graph_state()
+		after = node(state).to_graph_state()
+		return {key: value for key, value in after.items() if before.get(key) != value}
 
 	return runner
 
@@ -56,49 +64,164 @@ def supervisor_plan(state: AgentRunState) -> AgentRunState:
 	company_name = stock_info.get("longName") or stock_info.get("shortName") or state.ticker
 	state.company_name = str(company_name)
 	state.supervisor_plan = (
-		"Build a lightweight company context case file first, extract valuation-relevant facts, choose the valuation family, "
-		"assemble model-ready assumptions, validate inputs, run deterministic Python math, then explain the result."
+		"Run the Macro, Qualitative, and Quantitative agents in parallel, merge the parallel-analysis research packet, choose the valuation family, "
+		"assemble model-ready assumptions, validate inputs, run deterministic Python math, then synthesize the result."
 	)
-	state.next_step = "build_company_context"
+	state.next_step = "parallel_analysis_start"
 	return state
 
 
-def build_company_context_node(state: AgentRunState) -> AgentRunState:
-	"""Build the lightweight pre-selection company context case file."""
+def parallel_analysis_start_node(state: AgentRunState) -> AgentRunState:
+	"""Reset the parallel-analysis slots before the three-agent fan-out."""
+
+	state.macro_analysis = {}
+	state.qualitative_analysis = {}
+	state.quantitative_analysis = {}
+	state.research_report = ""
+	state.source_links = []
+	state.source_notes = []
+	state.candidate_facts = []
+	state.next_step = None
+	return state
+
+
+def _parallel_analysis_error_artifact(agent_name: str, error: Exception | str) -> dict[str, Any]:
+	return {
+		"analysis_agent": agent_name,
+		"summary": "",
+		"report_markdown": "",
+		"source_links": [],
+		"source_notes": [],
+		"candidate_facts": [],
+		"confidence": 0.0,
+		"error": str(error),
+	}
+
+
+def run_macro_analysis_node(state: AgentRunState) -> AgentRunState:
+	"""Execute the macro branch of the parallel analysis."""
 
 	try:
-		research = build_company_context(
+		state.macro_analysis = run_macro_analysis(
 			state.ticker,
 			state.stock_data,
 			model_name=state.model_name,
 			analysis_focus=state.analysis_focus,
 		)
 	except Exception as exc:
-		return _record_error(state, "build_company_context", exc)
-
-	state.research_report = str(research.get("report_markdown") or "")
-	state.source_links = list(research.get("source_links") or [])
-	state.source_notes = list(research.get("source_notes") or [])
-	state.confidence = research.get("confidence", state.confidence)
-	state.metadata["research_summary"] = research.get("summary") or ""
-	state.next_step = "extract_candidate_facts"
+		state.macro_analysis = _parallel_analysis_error_artifact("macro", exc)
 	return state
 
 
-def extract_candidate_facts_node(state: AgentRunState) -> AgentRunState:
-	"""Convert messy research into source-aware candidate facts."""
+def run_qualitative_analysis_node(state: AgentRunState) -> AgentRunState:
+	"""Execute the qualitative branch of the parallel analysis."""
 
 	try:
-		state.candidate_facts = extract_candidate_facts(
+		state.qualitative_analysis = run_qualitative_analysis(
 			state.ticker,
 			state.stock_data,
-			state.research_report,
-			state.source_notes,
 			model_name=state.model_name,
+			analysis_focus=state.analysis_focus,
 		)
 	except Exception as exc:
-		return _record_error(state, "extract_candidate_facts", exc)
+		state.qualitative_analysis = _parallel_analysis_error_artifact("qualitative", exc)
+	return state
 
+
+def run_quantitative_analysis_node(state: AgentRunState) -> AgentRunState:
+	"""Execute the quantitative branch of the parallel analysis."""
+
+	try:
+		state.quantitative_analysis = run_quantitative_analysis(
+			state.ticker,
+			state.stock_data,
+			model_name=state.model_name,
+			analysis_focus=state.analysis_focus,
+		)
+	except Exception as exc:
+		state.quantitative_analysis = _parallel_analysis_error_artifact("quantitative", exc)
+	return state
+
+
+def _dedupe_source_notes(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+	seen: set[tuple[str, str, str, str]] = set()
+	deduped: list[dict[str, Any]] = []
+	for note in notes:
+		key = (
+			str(note.get("analysis_agent") or "").strip(),
+			str(note.get("title") or "").strip(),
+			str(note.get("url") or "").strip(),
+			str(note.get("snippet") or "").strip(),
+		)
+		if key in seen:
+			continue
+		seen.add(key)
+		deduped.append(note)
+	return deduped
+
+
+def _build_parallel_analysis_report_section(title: str, artifact: dict[str, Any]) -> str:
+	body = str(artifact.get("report_markdown") or "").strip()
+	error = str(artifact.get("error") or "").strip()
+	if not body and error:
+		body = f"- This branch did not complete successfully: {error}"
+	if not body:
+		body = "- No research output was generated for this branch."
+	return f"## {title}\n\n{body}"
+
+
+def merge_parallel_analysis_node(state: AgentRunState) -> AgentRunState:
+	"""Join the parallel analysis outputs into one downstream research packet."""
+
+	artifacts = [
+		dict(state.macro_analysis or {}),
+		dict(state.qualitative_analysis or {}),
+		dict(state.quantitative_analysis or {}),
+	]
+	for artifact in artifacts:
+		error = str(artifact.get("error") or "").strip()
+		agent_name = str(artifact.get("analysis_agent") or "parallel_analysis")
+		if error:
+			state.errors.append(f"{agent_name}: {error}")
+
+	state.research_report = "\n\n".join(
+		[
+			_build_parallel_analysis_report_section("Macro Analysis", artifacts[0]),
+			_build_parallel_analysis_report_section("Qualitative Analysis", artifacts[1]),
+			_build_parallel_analysis_report_section("Quantitative Analysis", artifacts[2]),
+		]
+	).strip()
+	state.source_links = list(
+		dict.fromkeys(
+			link.strip()
+			for artifact in artifacts
+			for link in list(artifact.get("source_links") or [])
+			if isinstance(link, str) and link.strip()
+		)
+	)
+	state.source_notes = _dedupe_source_notes(
+		[
+			dict(note)
+			for artifact in artifacts
+			for note in list(artifact.get("source_notes") or [])
+			if isinstance(note, dict)
+		]
+	)
+	state.candidate_facts = merge_candidate_facts(
+		*[list(artifact.get("candidate_facts") or []) for artifact in artifacts]
+	)
+	confidence_values = [
+		float(value)
+		for value in (artifact.get("confidence") for artifact in artifacts)
+		if isinstance(value, (int, float)) and float(value) > 0
+	]
+	if confidence_values:
+		state.confidence = sum(confidence_values) / len(confidence_values)
+	state.metadata["research_summary"] = " | ".join(
+		str(artifact.get("summary") or "").strip()
+		for artifact in artifacts
+		if str(artifact.get("summary") or "").strip()
+	)
 	state.next_step = "select_model_and_variant"
 	return state
 
@@ -225,8 +348,11 @@ def build_agent_graph() -> Any:
 
 	graph = StateGraph(AgentGraphState)
 	graph.add_node("supervisor_plan", _wrap_node(supervisor_plan))
-	graph.add_node("build_company_context", _wrap_node(build_company_context_node))
-	graph.add_node("extract_candidate_facts", _wrap_node(extract_candidate_facts_node))
+	graph.add_node("parallel_analysis_start", _wrap_node(parallel_analysis_start_node))
+	graph.add_node("run_macro_analysis", _wrap_node(run_macro_analysis_node))
+	graph.add_node("run_qualitative_analysis", _wrap_node(run_qualitative_analysis_node))
+	graph.add_node("run_quantitative_analysis", _wrap_node(run_quantitative_analysis_node))
+	graph.add_node("merge_parallel_analysis", _wrap_node(merge_parallel_analysis_node))
 	graph.add_node("select_model_and_variant", _wrap_node(select_model_and_variant))
 	graph.add_node("plan_parameters", _wrap_node(plan_parameters_node))
 	graph.add_node("validate_parameters", _wrap_node(validate_parameters_node))
@@ -234,9 +360,14 @@ def build_agent_graph() -> Any:
 	graph.add_node("write_report", _wrap_node(write_report_node))
 
 	graph.add_edge(START, "supervisor_plan")
-	graph.add_edge("supervisor_plan", "build_company_context")
-	graph.add_edge("build_company_context", "extract_candidate_facts")
-	graph.add_edge("extract_candidate_facts", "select_model_and_variant")
+	graph.add_edge("supervisor_plan", "parallel_analysis_start")
+	graph.add_edge("parallel_analysis_start", "run_macro_analysis")
+	graph.add_edge("parallel_analysis_start", "run_qualitative_analysis")
+	graph.add_edge("parallel_analysis_start", "run_quantitative_analysis")
+	graph.add_edge("run_macro_analysis", "merge_parallel_analysis")
+	graph.add_edge("run_qualitative_analysis", "merge_parallel_analysis")
+	graph.add_edge("run_quantitative_analysis", "merge_parallel_analysis")
+	graph.add_edge("merge_parallel_analysis", "select_model_and_variant")
 	graph.add_edge("select_model_and_variant", "plan_parameters")
 	graph.add_edge("plan_parameters", "validate_parameters")
 	graph.add_conditional_edges(
@@ -267,8 +398,24 @@ def run_orchestration(state: AgentRunState) -> AgentRunState:
 
 	with stock_data_cache_scope():
 		state = supervisor_plan(state)
-		state = build_company_context_node(state)
-		state = extract_candidate_facts_node(state)
+		state = parallel_analysis_start_node(state)
+		parallel_analysis_nodes = (
+			("macro_analysis", run_macro_analysis_node),
+			("qualitative_analysis", run_qualitative_analysis_node),
+			("quantitative_analysis", run_quantitative_analysis_node),
+		)
+		with ThreadPoolExecutor(max_workers=3) as executor:
+			futures = {
+				executor.submit(node, AgentRunState.from_graph_state(state.to_graph_state())): field_name
+				for field_name, node in parallel_analysis_nodes
+			}
+			for future, field_name in ((future, futures[future]) for future in futures):
+				try:
+					branch_state = future.result()
+					setattr(state, field_name, dict(getattr(branch_state, field_name) or {}))
+				except Exception as exc:
+					setattr(state, field_name, _parallel_analysis_error_artifact(field_name.replace("_analysis", ""), exc))
+		state = merge_parallel_analysis_node(state)
 		state = select_model_and_variant(state)
 		while True:
 			state = plan_parameters_node(state)
@@ -285,14 +432,18 @@ def run_orchestration(state: AgentRunState) -> AgentRunState:
 __all__ = [
 	"GRAPH_STEPS",
 	"build_agent_graph",
-	"build_company_context",
-	"build_company_context_node",
-	"extract_candidate_facts",
-	"extract_candidate_facts_node",
+	"merge_parallel_analysis_node",
 	"plan_parameters",
 	"plan_parameters_node",
+	"parallel_analysis_start_node",
+	"run_macro_analysis",
+	"run_macro_analysis_node",
 	"run_agent_graph",
 	"run_orchestration",
+	"run_qualitative_analysis",
+	"run_qualitative_analysis_node",
+	"run_quantitative_analysis",
+	"run_quantitative_analysis_node",
 	"run_python_valuation_node",
 	"select_model",
 	"select_model_and_variant",

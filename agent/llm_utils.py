@@ -40,6 +40,7 @@ def build_chat_model(model_name: str | None = None, temperature: float = 0.1):
 		model=model_name or default_model_name(),
 		temperature=temperature,
 		api_key=api_key,
+		verbose=False,
 	)
 
 

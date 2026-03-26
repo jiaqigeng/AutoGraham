@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import gzip
 import os
 import re
+import zlib
 from html import unescape
 from json import loads
 from typing import Any, Iterable, Mapping
@@ -28,6 +30,12 @@ _MAX_SECTION_SNIPPET_CHARS = 1800
 
 _SECTION_SPECS: dict[str, tuple[dict[str, str], ...]] = {
 	"10-K": (
+		{
+			"key": "business",
+			"title": "Business",
+			"start": r"\bitem\s+1\b.{0,120}?business\b",
+			"stop": r"\bitem\s+1a\b|\bitem\s+2\b",
+		},
 		{
 			"key": "risk_factors",
 			"title": "Risk Factors",
@@ -72,7 +80,7 @@ def _request_json(url: str) -> dict[str, Any]:
 
 	request = Request(url, headers=_sec_headers())
 	with urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
-		payload = loads(response.read().decode("utf-8"))
+		payload = loads(_read_response_text(response))
 	return payload if isinstance(payload, dict) else {}
 
 
@@ -81,7 +89,38 @@ def _request_text(url: str) -> str:
 
 	request = Request(url, headers=_sec_headers())
 	with urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
-		return response.read().decode("utf-8", errors="ignore")
+		return _read_response_text(response, errors="ignore")
+
+
+def _decode_response_bytes(raw_bytes: bytes, content_encoding: str = "") -> bytes:
+	"""Decode SEC payload bytes, including gzip/deflate responses."""
+
+	encoding = str(content_encoding or "").strip().lower()
+	if "gzip" in encoding:
+		return gzip.decompress(raw_bytes)
+	if "deflate" in encoding:
+		try:
+			return zlib.decompress(raw_bytes)
+		except zlib.error:
+			return zlib.decompress(raw_bytes, -zlib.MAX_WBITS)
+	if raw_bytes[:2] == b"\x1f\x8b":
+		return gzip.decompress(raw_bytes)
+	return raw_bytes
+
+
+def _read_response_text(response: Any, errors: str = "strict") -> str:
+	"""Read and decode HTTP response text while handling compression."""
+
+	raw_bytes = response.read()
+	content_encoding = ""
+	headers = getattr(response, "headers", None)
+	if headers is not None:
+		try:
+			content_encoding = str(headers.get("Content-Encoding") or "")
+		except Exception:
+			content_encoding = ""
+	decoded = _decode_response_bytes(raw_bytes, content_encoding)
+	return decoded.decode("utf-8-sig", errors=errors)
 
 
 def _normalize_text(value: str) -> str:

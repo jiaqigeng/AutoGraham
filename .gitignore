@@ -4,3 +4,6 @@ AutoGrahamEnv
 .idea/
 __pycache__/
 *.py[cod]
+data/cache/
+data/warehouse/
+data/chroma/
