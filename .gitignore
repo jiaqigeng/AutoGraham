@@ -1,9 +1,31 @@
-AutoGrahamEnv
+# Local environment and secrets
 .env
-.DS_Store
-.idea/
+.env.*
+!.env.example
+
+# Virtual environments
+.venv/
+.venv_graham/
+
+# Python cache and build artifacts
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor and IDE files
+.idea/
+.vscode/
+
+# Streamlit local config
+.streamlit/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Generated local data cache
 data/cache/
-data/warehouse/
-data/chroma/
