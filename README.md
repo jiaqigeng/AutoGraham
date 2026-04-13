@@ -1,4 +1,4 @@
-# Fundamental Analysis
+# AutoGraham
 
 Streamlit app for exploring market data, running valuation models, and generating AI-assisted equity analysis for a public-company ticker.
 
